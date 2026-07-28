@@ -3,7 +3,7 @@ from supabase import create_client, Client
 import requests
 import json
 import re
-import random # Thư viện để chọn ngẫu nhiên API key xoay vòng
+import random 
 
 # ==========================================
 # 1. CẤU HÌNH TRANG VÀ KẾT NỐI SUPABASE
@@ -56,10 +56,9 @@ if "novel_data" not in st.session_state:
         "chapters": {}
     }
 
-# SYSTEM PROMPT BẮT BUỘC VỀ VĂN PHONG
 STYLE_PROMPT = """
 [YÊU CẦU BẮT BUỘC VỀ VĂN PHONG VÀ HÀNH VĂN]
-- Tuyệt đối KHÔNG sử dụng từ ngữ hoa mỹ, phô trương, cường điệu hay lãng mạn hóa quá mức (tránh xa các từ ngữ kiểu ngôn tình sến sẩm).
+- Tuyệt đối KHÔNG sử dụng từ ngữ hoa mỹ, phô trương, cường điệu hay lãng mạn hóa quá mức.
 - Giữ giọng văn mộc mạc, gần gũi, mang đậm chất đời thường và hơi thở thực tế của bối cảnh.
 - Giữ nhịp điệu kể chuyện tỉnh táo: Kể sự việc theo lối "thấy sao nói vậy", để nhân vật quan sát sự việc bằng con mắt thực tế.
 - Nhịp câu ngắn gọn, gãy gọn, tập trung vào hành động thực tế và tâm lý nhân vật.
@@ -67,7 +66,7 @@ STYLE_PROMPT = """
 """
 
 # ==========================================
-# CÁC HÀM XỬ LÝ DỮ LIỆU VỚI SUPABASE (LOAD & SAVE)
+# CÁC HÀM XỬ LÝ DỮ LIỆU
 # ==========================================
 def load_user_data_from_supabase(email):
     if supabase:
@@ -96,75 +95,87 @@ def save_user_data_to_supabase():
             st.error(f"Lỗi khi lưu lên Supabase: {e}")
 
 # ==========================================
-# CÁC HÀM GỌI API AI TRỰC TIẾP
+# HÀM GỌI LLM SIÊU CẤP (TỰ ĐỘNG BỎ QUA KEY LỖI 429)
 # ==========================================
 def call_llm(system_prompt, messages_or_prompt, api_keys, model_choice):
-    # Hàm con: Tách các key từ ô nhập (nhiều dòng) và chọn ngẫu nhiên 1 key (Xoay vòng)
-    def get_random_key(key_string):
-        if not key_string: return ""
-        keys = [k.strip() for k in key_string.split('\n') if k.strip()]
-        return random.choice(keys) if keys else ""
+    # Lấy danh sách toàn bộ Keys người dùng đã nhập
+    gemini_keys_str = api_keys.get("gemini", "")
+    openai_keys_str = api_keys.get("openai", "")
 
-    gemini_key = get_random_key(api_keys.get("gemini", ""))
-    openai_key = get_random_key(api_keys.get("openai", ""))
+    gemini_keys = [k.strip() for k in gemini_keys_str.split('\n') if k.strip()]
+    openai_keys = [k.strip() for k in openai_keys_str.split('\n') if k.strip()]
 
-    if openai_key.startswith("sb_"):
-        return "⚠️ LỖI: Bạn đang dán nhầm Supabase Key vào ô OpenAI Key!"
+    if "Gemini" in model_choice:
+        if not gemini_keys:
+            return "⚠️ LỖI: Bạn chưa nhập Google Gemini API Key trong mục '1. Cấu hình API Keys'."
+        
+        # Xáo trộn danh sách key để phân bổ tải đều nhau
+        random.shuffle(gemini_keys)
+        
+        # CHU TRÌNH THỬ TỪNG KEY
+        for key in gemini_keys:
+            try:
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={key}"
+                headers = {"Content-Type": "application/json"}
+                
+                contents = []
+                if system_prompt:
+                    contents.append({"role": "user", "parts": [{"text": f"[YÊU CẦU HỆ THỐNG]: {system_prompt}"}]})
+                    contents.append({"role": "model", "parts": [{"text": "Đã hiểu yêu cầu hệ thống."}]})
 
-    provider = None
-    if "Gemini" in model_choice and gemini_key:
-        provider = "gemini"
-    elif "OpenAI" in model_choice and openai_key:
-        provider = "openai"
-    else:
-        if gemini_key: provider = "gemini"
-        elif openai_key: provider = "openai"
+                if isinstance(messages_or_prompt, list):
+                    for m in messages_or_prompt:
+                        role = "user" if m["role"] == "user" else "model"
+                        contents.append({"role": role, "parts": [{"text": m["content"]}]})
+                else:
+                    contents.append({"role": "user", "parts": [{"text": str(messages_or_prompt)}]})
 
-    if not provider:
-        return "⚠️ BẠN CHƯA CẤU HÌNH API KEY! Vui lòng vào mục '1. Cấu hình API Keys' để nhập."
+                res = requests.post(url, headers=headers, json={"contents": contents}, timeout=60)
+                
+                if res.status_code == 200:
+                    return res.json()["candidates"][0]["content"]["parts"][0]["text"]
+                elif res.status_code == 429:
+                    # NẾU LỖI 429 QUÁ TẢI -> BỎ QUA KEY NÀY VÀ THỬ KEY TIẾP THEO TRONG VÒNG LẶP
+                    continue
+                else:
+                    # Nếu lỗi khác (ví dụ server lag), thử đổi sang mô hình 1.5-pro với cùng key đó
+                    url_fb = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key={key}"
+                    res_fb = requests.post(url_fb, headers=headers, json={"contents": contents}, timeout=60)
+                    if res_fb.status_code == 200:
+                        return res_fb.json()["candidates"][0]["content"]["parts"][0]["text"]
+                    elif res_fb.status_code == 429:
+                        continue
+                    else:
+                        continue # Bỏ qua key này luôn nếu vẫn lỗi
+            except Exception:
+                continue # Lỗi mạng, chuyển sang thử key khác
 
-    try:
-        if provider == "gemini":
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={gemini_key}"
-            headers = {"Content-Type": "application/json"}
-            
-            contents = []
-            if system_prompt:
-                contents.append({"role": "user", "parts": [{"text": f"[YÊU CẦU HỆ THỐNG]: {system_prompt}"}]})
-                contents.append({"role": "model", "parts": [{"text": "Đã hiểu yêu cầu hệ thống."}]})
+        # NẾU CHẠY HẾT VÒNG LẶP MÀ VẪN KHÔNG CÓ TRẢ LỜI -> TẤT CẢ KEY ĐỀU CHẾT
+        return "❌ LỖI RATE LIMIT TOÀN BỘ: Tất cả các API Key bạn nhập đều đã bị Google báo hết hạn mức (Lỗi 429). Vui lòng thêm Key mới từ tài khoản khác, hoặc đợi vài phút để Google reset hạn mức rồi thử lại!"
 
-            if isinstance(messages_or_prompt, list):
-                for m in messages_or_prompt:
-                    role = "user" if m["role"] == "user" else "model"
-                    contents.append({"role": role, "parts": [{"text": m["content"]}]})
-            else:
-                contents.append({"role": "user", "parts": [{"text": str(messages_or_prompt)}]})
-
-            res = requests.post(url, headers=headers, json={"contents": contents}, timeout=60)
-            if res.status_code == 200:
-                return res.json()["candidates"][0]["content"]["parts"][0]["text"]
-            else:
-                url_fb = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key={gemini_key}"
-                res_fb = requests.post(url_fb, headers=headers, json={"contents": contents}, timeout=60)
-                if res_fb.status_code == 200:
-                    return res_fb.json()["candidates"][0]["content"]["parts"][0]["text"]
-                return f"❌ Lỗi Gemini ({res.status_code}): {res.text}"
-
-        elif provider == "openai":
-            headers = {"Authorization": f"Bearer {openai_key}", "Content-Type": "application/json"}
-            msgs = [{"role": "system", "content": system_prompt}]
-            if isinstance(messages_or_prompt, list):
-                msgs.extend(messages_or_prompt)
-            else:
-                msgs.append({"role": "user", "content": str(messages_or_prompt)})
-            res = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json={"model": "gpt-4o-mini", "messages": msgs, "temperature": 0.7}, timeout=60)
-            if res.status_code == 200:
-                return res.json()["choices"][0]["message"]["content"]
-            else:
-                return f"❌ Lỗi OpenAI ({res.status_code}): {res.text}"
-
-    except Exception as e:
-        return f"❌ Lỗi kết nối AI: {str(e)}"
+    elif "OpenAI" in model_choice:
+        if not openai_keys:
+             return "⚠️ LỖI: Bạn chưa nhập OpenAI API Key."
+        random.shuffle(openai_keys)
+        for key in openai_keys:
+            if key.startswith("sb_"): continue
+            try:
+                headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+                msgs = [{"role": "system", "content": system_prompt}]
+                if isinstance(messages_or_prompt, list):
+                    msgs.extend(messages_or_prompt)
+                else:
+                    msgs.append({"role": "user", "content": str(messages_or_prompt)})
+                res = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json={"model": "gpt-4o-mini", "messages": msgs, "temperature": 0.7}, timeout=60)
+                if res.status_code == 200:
+                    return res.json()["choices"][0]["message"]["content"]
+                elif res.status_code == 429:
+                    continue # Quá tải thì thử key khác
+            except Exception:
+                continue
+        return "❌ LỖI RATE LIMIT: Tất cả các API Key OpenAI đều đã hết hạn mức hoặc tài khoản không có tiền."
+    
+    return "⚠️ Lỗi: Không thể xác định mô hình AI."
 
 # ==========================================
 # 2. XÁC THỰC TÀI KHOẢN & TỰ ĐỘNG NẠP DỮ LIỆU
@@ -244,11 +255,11 @@ if "raw_chapters" not in st.session_state.novel_data:
     st.session_state.novel_data["raw_chapters"] = {}
 
 # ==========================================
-# PHẦN 1: CẤU HÌNH API KEYS (HỖ TRỢ NHIỀU TÀI KHOẢN / XOAY VÒNG KEY)
+# CÁC MỤC GIAO DIỆN CON (1 ĐẾN 7)
 # ==========================================
 if menu == "1. Cấu hình API Keys":
     st.header("🔑 Cấu hình API (Hỗ trợ chống Rate Limit)")
-    st.info("💡 **Mẹo:** Bạn có thể dán nhiều API Key vào cùng 1 ô (Mỗi key nằm trên 1 dòng). Hệ thống sẽ tự động chọn ngẫu nhiên để xoay vòng, giúp bạn dịch hàng trăm chương mà không bị chặn hạn mức tài khoản!")
+    st.info("💡 **Mẹo Rất Quan Trọng:** Vui lòng dán **ít nhất 2-3 API Key** (lấy từ các tài khoản Google khác nhau) vào ô dưới đây. Mỗi key nằm trên 1 dòng. Hệ thống sẽ tự động thử lần lượt, key này bị chặn thì tự đổi sang key kia để không bị lỗi 429!")
 
     col1, col2 = st.columns(2)
     with col1:
@@ -271,11 +282,8 @@ if menu == "1. Cấu hình API Keys":
         st.session_state.novel_data["api_keys"] = {"openai": openai_keys_input, "gemini": gemini_keys_input}
         st.session_state.novel_data["selected_model"] = selected_model
         save_user_data_to_supabase()
-        st.success("Đã lưu API Keys! Hệ thống sẽ tự động xoay vòng các key này.")
+        st.success("Đã lưu API Keys! Hệ thống sẽ tự động xoay vòng để chống lỗi.")
 
-# ==========================================
-# PHẦN 2: TẢI LÊN RAW REFERENCE
-# ==========================================
 elif menu == "2. Tải lên RAW Reference":
     st.header("📚 Tải lên bộ Raw Tham Khảo")
     uploaded_files = st.file_uploader("Chọn các tệp Raw (.txt, .md):", type=["txt", "md"], accept_multiple_files=True)
@@ -300,9 +308,6 @@ elif menu == "2. Tải lên RAW Reference":
                     save_user_data_to_supabase()
                     st.rerun()
 
-# ==========================================
-# PHẦN 3: TÁCH CHƯƠNG VÀ DỊCH RAW
-# ==========================================
 elif menu == "3. Tách & Dịch Raw":
     st.header("✂️ Tách chương & Dịch Raw")
     
@@ -358,11 +363,9 @@ elif menu == "3. Tách & Dịch Raw":
             with col_trans:
                 st.markdown("**Bản Dịch (Tiếng Việt)**")
                 if st.button("🌐 AI Dịch Chương Này", use_container_width=True):
-                    trans_system_prompt = """Bạn là một dịch giả tiểu thuyết chuyên nghiệp.
-Nhiệm vụ: Dịch đoạn văn bản truyện RAW sau sang tiếng Việt.
-Yêu cầu: Dịch mượt mà, thuần Việt. Giữ nguyên nghĩa gốc, không lậm văn phong máy móc. Giữ nguyên cách phân đoạn."""
+                    trans_system_prompt = """Bạn là một dịch giả tiểu thuyết chuyên nghiệp. Dịch mượt mà, thuần Việt, không lậm văn phong máy móc. Giữ nguyên đoạn văn."""
                     
-                    with st.spinner("AI đang tiến hành dịch thuật..."):
+                    with st.spinner("AI đang tiến hành dịch thuật... Nếu bị treo lâu, nghĩa là các Key đang xoay vòng để chống lỗi."):
                         translated_text = call_llm(
                             system_prompt=trans_system_prompt,
                             messages_or_prompt=f"NỘI DUNG RAW CẦN DỊCH:\n\n{raw_text}",
@@ -384,9 +387,6 @@ Yêu cầu: Dịch mượt mà, thuần Việt. Giữ nguyên nghĩa gốc, khô
                     save_user_data_to_supabase()
                     st.success("Đã lưu bản cập nhật!")
 
-# ==========================================
-# PHẦN 4, 5, 6, 7 (Phỏng vấn, Dàn ý, Viết nháp, Xuất truyện giữ nguyên)
-# ==========================================
 elif menu == "4. AI Phỏng vấn (Bối cảnh & Nhân vật)":
     col_title, col_clear = st.columns([3, 1])
     with col_title:
