@@ -4,7 +4,7 @@ import requests
 import json
 import re
 import random 
-import time  # Bổ sung time để xử lý giãn cách retry
+import time
 
 # ==========================================
 # 1. CẤU HÌNH TRANG VÀ KẾT NỐI SUPABASE
@@ -96,35 +96,30 @@ def save_user_data_to_supabase():
             st.error(f"Lỗi khi lưu lên Supabase: {e}")
 
 # ==========================================
-# HÀM GỌI LLM SIÊU CẤP (BẮT LỖI & RETRY THÔNG MINH)
+# HÀM GỌI LLM SIÊU CẤP (ĐÃ FIX MODEL 1.5-FLASH)
 # ==========================================
 def call_llm(system_prompt, messages_or_prompt, api_keys, model_choice):
     gemini_keys_str = api_keys.get("gemini", "")
     openai_keys_str = api_keys.get("openai", "")
 
-    # Tách key thông minh bằng Regex (hỗ trợ xuống dòng, dấu phẩy, khoảng trắng)
+    # Tách key
     gemini_keys = [k.strip() for k in re.split(r'[\n,;\s]+', gemini_keys_str) if k.strip()]
     openai_keys = [k.strip() for k in re.split(r'[\n,;\s]+', openai_keys_str) if k.strip()]
 
     if "Gemini" in model_choice:
         if not gemini_keys:
-            return "⚠️ LỖI: Bạn chưa nhập Google Gemini API Key trong mục '1. Cấu hình API Keys'."
+            return "⚠️ LỖI: Bạn chưa nhập Google Gemini API Key."
         
-        # Xáo trộn danh sách key
         random.shuffle(gemini_keys)
         
-        # Thử lần lượt từng key
-        for idx, key in enumerate(gemini_keys):
+        last_error = ""
+        for key in gemini_keys:
             try:
-                # Thử với mô hình gemini-2.0-flash
-                url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={key}"
+                # ĐÃ ĐỔI SANG MÔ HÌNH 1.5-FLASH CHUẨN MIỄN PHÍ
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={key}"
                 headers = {"Content-Type": "application/json"}
                 
                 contents = []
-                if system_prompt:
-                    contents.append({"role": "user", "parts": [{"text": f"[YÊU CẦU HỆ THỐNG]: {system_prompt}"}]})
-                    contents.append({"role": "model", "parts": [{"text": "Đã hiểu yêu cầu hệ thống."}]})
-
                 if isinstance(messages_or_prompt, list):
                     for m in messages_or_prompt:
                         role = "user" if m["role"] == "user" else "model"
@@ -132,29 +127,27 @@ def call_llm(system_prompt, messages_or_prompt, api_keys, model_choice):
                 else:
                     contents.append({"role": "user", "parts": [{"text": str(messages_or_prompt)}]})
 
-                res = requests.post(url, headers=headers, json={"contents": contents}, timeout=60)
+                # Gửi System Prompt theo định dạng chuẩn mới nhất của Google
+                payload = {"contents": contents}
+                if system_prompt:
+                    payload["system_instruction"] = {"parts": [{"text": system_prompt}]}
+
+                res = requests.post(url, headers=headers, json=payload, timeout=60)
                 
                 if res.status_code == 200:
                     return res.json()["candidates"][0]["content"]["parts"][0]["text"]
-                
                 elif res.status_code == 429:
-                    # Dính 429 -> Tạm nghỉ 1.5s để xả Rate Limit trước khi thử key tiếp theo
+                    last_error = "Rate Limit 429"
                     time.sleep(1.5)
-                    continue
+                    continue # Thử key khác
                 else:
-                    # Nếu lỗi khác, thử chuyển sang model gemini-1.5-flash
-                    url_fb = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={key}"
-                    res_fb = requests.post(url_fb, headers=headers, json={"contents": contents}, timeout=60)
-                    if res_fb.status_code == 200:
-                        return res_fb.json()["candidates"][0]["content"]["parts"][0]["text"]
-                    elif res_fb.status_code == 429:
-                        time.sleep(1.5)
-                        continue
-            except Exception:
-                time.sleep(1)
+                    last_error = f"Lỗi {res.status_code}: {res.text}"
+                    continue # Thử key khác
+            except Exception as e:
+                last_error = str(e)
                 continue
 
-        return f"❌ LỖI RATE LIMIT TOÀN BỘ ({len(gemini_keys)} Key đã thử): Tất cả các Key bạn nhập đều bị dính lỗi 429. Lưu ý: Các Key phải lấy từ nhiều TÀI KHOẢN GMAIL KHÁC NHAU mới có hiệu lực chia tải!"
+        return f"❌ LỖI TẤT CẢ API KEYS. Chi tiết lỗi cuối cùng: {last_error}"
 
     elif "OpenAI" in model_choice:
         if not openai_keys:
@@ -182,7 +175,7 @@ def call_llm(system_prompt, messages_or_prompt, api_keys, model_choice):
     return "⚠️ Lỗi: Không thể xác định mô hình AI."
 
 # ==========================================
-# 2. XÁC THỰC TÀI KHOẢN & TỰ ĐỘNG NẠP DỮ LIỆU
+# CÁC PHẦN GIAO DIỆN BÊN DƯỚI GIỮ NGUYÊN
 # ==========================================
 if not st.session_state.authenticated:
     st.title("☁️ Đăng nhập Novel Studio")
@@ -225,16 +218,12 @@ if not st.session_state.authenticated:
 
     st.stop()
 
-# ==========================================
-# 3. GIAO DIỆN CHÍNH & ĐIỀU HƯỚNG
-# ==========================================
 st.sidebar.title("📖 Novel Studio")
 st.sidebar.write(f"👤 **{st.session_state.user_email}**")
 
 with st.sidebar:
     if st.button("💾 Lưu dữ liệu ngay", use_container_width=True):
         save_user_data_to_supabase()
-
     if st.button("🚪 Đăng xuất", use_container_width=True):
         st.session_state.authenticated = False
         st.session_state.user_email = ""
@@ -258,12 +247,8 @@ menu = st.sidebar.radio(
 if "raw_chapters" not in st.session_state.novel_data:
     st.session_state.novel_data["raw_chapters"] = {}
 
-# ==========================================
-# CÁC MỤC GIAO DIỆN CON (1 ĐẾN 7)
-# ==========================================
 if menu == "1. Cấu hình API Keys":
     st.header("🔑 Cấu hình API (Hỗ trợ chống Rate Limit)")
-    st.info("💡 **LƯU Ý QUAN TRỌNG:** 5 Key bạn dán phải được lấy từ **5 TÀI KHOẢN GMAIL KHÁC NHAU**. Nếu tạo 5 Key trên cùng 1 tài khoản Gmail, Google vẫn sẽ tính chung 1 hạn mức!")
 
     col1, col2 = st.columns(2)
     with col1:
@@ -274,7 +259,7 @@ if menu == "1. Cấu hình API Keys":
             placeholder="AIzaSy...\nAIzaSy...\nAIzaSy..."
         )
         parsed_gemini = [k.strip() for k in re.split(r'[\n,;\s]+', gemini_keys_input) if k.strip()]
-        st.caption(f"📊 Hệ thống đã nhận diện được: **{len(parsed_gemini)} Key Gemini**")
+        st.caption(f"📊 Đã nhận diện: **{len(parsed_gemini)} Key Gemini**")
 
     with col2:
         openai_keys_input = st.text_area(
@@ -289,7 +274,7 @@ if menu == "1. Cấu hình API Keys":
         st.session_state.novel_data["api_keys"] = {"openai": openai_keys_input, "gemini": gemini_keys_input}
         st.session_state.novel_data["selected_model"] = selected_model
         save_user_data_to_supabase()
-        st.success(f"Đã lưu thành công {len(parsed_gemini)} Key Gemini!")
+        st.success("Đã lưu cấu hình API!")
 
 elif menu == "2. Tải lên RAW Reference":
     st.header("📚 Tải lên bộ Raw Tham Khảo")
