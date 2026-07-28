@@ -5,6 +5,8 @@ import json
 import re
 import random 
 import time
+from google import genai
+from google.genai import types
 
 # ==========================================
 # 1. CẤU HÌNH TRANG VÀ KẾT NỐI SUPABASE
@@ -96,7 +98,7 @@ def save_user_data_to_supabase():
             st.error(f"Lỗi khi lưu lên Supabase: {e}")
 
 # ==========================================
-# HÀM GỌI LLM SIÊU CẤP (FIX 429 & FIX 404 NOT FOUND)
+# HÀM GỌI LLM (TÍCH HỢP SDK GOOGLE-GENAI MỚI NHẤT)
 # ==========================================
 def call_llm(system_prompt, messages_or_prompt, api_keys, model_choice):
     gemini_keys_str = api_keys.get("gemini", "")
@@ -106,70 +108,52 @@ def call_llm(system_prompt, messages_or_prompt, api_keys, model_choice):
     gemini_keys = [k.strip() for k in re.split(r'[\n,;\s]+', gemini_keys_str) if k.strip()]
     openai_keys = [k.strip() for k in re.split(r'[\n,;\s]+', openai_keys_str) if k.strip()]
 
+    # Chuyển đổi lịch sử chat (nếu có) thành chuỗi văn bản thuần để tương thích tốt nhất với hàm fallback
+    if isinstance(messages_or_prompt, list):
+        prompt_text = "\n".join([f"{m['role'].upper()}: {m['content']}" for m in messages_or_prompt])
+    else:
+        prompt_text = str(messages_or_prompt)
+
     if "Gemini" in model_choice:
         if not gemini_keys:
             return "⚠️ LỖI: Bạn chưa nhập Google Gemini API Key."
         
         random.shuffle(gemini_keys)
         
+        # Mảng model fallback thông minh của bạn
+        models_to_try = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro']
         last_error = ""
+        
         for key in gemini_keys:
             try:
-                # 1. Đưa System Prompt vào chung nội dung hội thoại (Tránh lỗi cấu trúc API mới của Google)
-                contents = []
-                if system_prompt:
-                    contents.append({"role": "user", "parts": [{"text": f"[YÊU CẦU HỆ THỐNG]: {system_prompt}"}]})
-                    contents.append({"role": "model", "parts": [{"text": "Tôi đã hiểu yêu cầu hệ thống."}]})
-
-                if isinstance(messages_or_prompt, list):
-                    for m in messages_or_prompt:
-                        role = "user" if m["role"] == "user" else "model"
-                        contents.append({"role": role, "parts": [{"text": m["content"]}]})
-                else:
-                    contents.append({"role": "user", "parts": [{"text": str(messages_or_prompt)}]})
-
-                payload = {"contents": contents}
-                headers = {"Content-Type": "application/json"}
-                
-                # 2. Danh sách các Endpoints để chống lỗi 404 (Thử bản v1 chính thức, nếu lỗi thì thử bản v1beta)
-                endpoints_to_try = [
-                    f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={key}",
-                    f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={key}",
-                    f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={key}"
-                ]
-                
-                key_failed = False
-                for url in endpoints_to_try:
-                    res = requests.post(url, headers=headers, json=payload, timeout=60)
-                    
-                    if res.status_code == 200:
-                        return res.json()["candidates"][0]["content"]["parts"][0]["text"]
-                    
-                    elif res.status_code == 429:
-                        last_error = "Rate Limit 429 (Quá tải)"
-                        time.sleep(1.5)
-                        key_failed = True
-                        break # Chuyển sang thử Key tiếp theo ngay lập tức
-                    
-                    elif res.status_code == 404:
-                        last_error = f"Lỗi 404 (Không tìm thấy model)"
-                        # Không break, tiếp tục vòng lặp thử url tiếp theo với cùng Key này
-                        continue 
-                        
-                    else:
-                        last_error = f"Lỗi {res.status_code}: {res.text}"
-                        key_failed = True
-                        break # Chuyển sang thử Key tiếp theo
-                
-                # Nếu đã thử hết các endpoint mà key vẫn tạch (như lỗi 429), thì thử key tiếp theo trong mảng
-                if key_failed:
-                    continue
-                    
+                client = genai.Client(api_key=key)
             except Exception as e:
-                last_error = str(e)
+                last_error = f"Lỗi khởi tạo Client với Key: {e}"
                 continue
 
-        return f"❌ LỖI TẤT CẢ API KEYS. Chi tiết lỗi cuối cùng: {last_error}"
+            for model_name in models_to_try:
+                try:
+                    config_kwargs = {}
+                    if system_prompt: 
+                        config_kwargs['system_instruction'] = system_prompt
+                    
+                    config = types.GenerateContentConfig(**config_kwargs) if config_kwargs else None
+
+                    res = client.models.generate_content(
+                        model=model_name, 
+                        contents=prompt_text, 
+                        config=config
+                    )
+                    
+                    if res and res.text: 
+                        return res.text
+                        
+                except Exception as e:
+                    # Nếu model này báo lỗi (404, 429, v.v.), vòng lặp sẽ tự động nhảy sang model_name tiếp theo
+                    last_error = f"Lỗi Model {model_name}: {e}"
+                    continue 
+                    
+        return f"❌ LỖI TẤT CẢ API KEYS & MODELS. Chi tiết cuối: {last_error}"
 
     elif "OpenAI" in model_choice:
         if not openai_keys:
