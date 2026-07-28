@@ -2,6 +2,7 @@ import streamlit as st
 from supabase import create_client, Client
 import requests
 import json
+import re
 
 # ==========================================
 # 1. CẤU HÌNH TRANG VÀ KẾT NỐI SUPABASE
@@ -49,6 +50,7 @@ if "novel_data" not in st.session_state:
         "characters": "",
         "outline": "",
         "raw_docs": [],
+        "raw_chapters": {}, # THÊM MỚI: Nơi lưu các chương Raw đã tách và dịch
         "interview_history": [],
         "chapters": {}
     }
@@ -75,6 +77,9 @@ def load_user_data_from_supabase(email):
                 saved_data = res.data[0].get("workspace_data")
                 if saved_data and isinstance(saved_data, dict):
                     st.session_state.novel_data.update(saved_data)
+                    # Cập nhật thêm key mới nếu dữ liệu cũ chưa có
+                    if "raw_chapters" not in st.session_state.novel_data:
+                        st.session_state.novel_data["raw_chapters"] = {}
                     st.toast("🎉 Đã tải thành công dữ liệu truyện cũ của bạn!", icon="✅")
         except Exception as e:
             st.error(f"Lỗi khi tải dữ liệu từ Supabase: {e}")
@@ -195,7 +200,6 @@ if not st.session_state.authenticated:
                     res = supabase.auth.sign_in_with_password({"email": email, "password": password})
                     st.session_state.authenticated = True
                     st.session_state.user_email = email
-                    # ĐĂNG NHẬP THÀNH CÔNG -> TỰ ĐỘNG TẢI DỮ LIỆU CŨ
                     load_user_data_from_supabase(email)
                     st.success("Đăng nhập thành công!")
                     st.rerun()
@@ -223,7 +227,7 @@ if not st.session_state.authenticated:
     st.stop()
 
 # ==========================================
-# 3. GIAO DIỆN CHÍNH & NÚT LƯU TRỰC TIẾP
+# 3. GIAO DIỆN CHÍNH & ĐIỀU HƯỚNG
 # ==========================================
 st.sidebar.title("📖 Novel Studio")
 st.sidebar.write(f"👤 **{st.session_state.user_email}**")
@@ -245,12 +249,17 @@ menu = st.sidebar.radio(
     [
         "1. Cấu hình API Keys",
         "2. Tải lên RAW Reference",
-        "3. AI Phỏng vấn (Bối cảnh & Nhân vật)",
-        "4. Lập Dàn ý & Bố cục",
-        "5. AI Viết nháp & Chỉnh sửa",
-        "6. Hoàn thiện & Xuất bộ truyện"
+        "3. Tách & Dịch Raw", # MENU MỚI
+        "4. AI Phỏng vấn (Bối cảnh & Nhân vật)",
+        "5. Lập Dàn ý & Bố cục",
+        "6. AI Viết nháp & Chỉnh sửa",
+        "7. Hoàn thiện & Xuất bộ truyện"
     ]
 )
+
+# Đảm bảo có key raw_chapters để tránh lỗi khi người dùng load từ phiên bản cũ
+if "raw_chapters" not in st.session_state.novel_data:
+    st.session_state.novel_data["raw_chapters"] = {}
 
 # ==========================================
 # PHẦN 1: CẤU HÌNH API KEYS
@@ -278,13 +287,14 @@ if menu == "1. Cấu hình API Keys":
 # ==========================================
 elif menu == "2. Tải lên RAW Reference":
     st.header("📚 Tải lên bộ Raw Tham Khảo")
-    uploaded_files = st.file_uploader("Chọn các tệp Raw tham khảo (.txt, .md):", type=["txt", "md"], accept_multiple_files=True)
+    uploaded_files = st.file_uploader("Chọn các tệp Raw (.txt, .md) chứa truyện gốc:", type=["txt", "md"], accept_multiple_files=True)
 
     if uploaded_files:
         for file in uploaded_files:
             if not any(d.get("filename") == file.name for d in st.session_state.novel_data["raw_docs"]):
                 content = file.read().decode("utf-8", errors="ignore")
-                st.session_state.novel_data["raw_docs"].append({"filename": file.name, "content": content[:8000]})
+                # Xóa bỏ giới hạn 8000 ký tự để lưu giữ toàn bộ nội dung file
+                st.session_state.novel_data["raw_docs"].append({"filename": file.name, "content": content})
         save_user_data_to_supabase()
         st.success("Đã tải lên và lưu tệp Raw!")
 
@@ -301,9 +311,108 @@ elif menu == "2. Tải lên RAW Reference":
                     st.rerun()
 
 # ==========================================
-# PHẦN 3: AI PHỎNG VẤN VÀ XÂY DỰNG NHÂN VẬT
+# PHẦN 3: TÁCH CHƯƠNG VÀ DỊCH RAW
 # ==========================================
-elif menu == "3. AI Phỏng vấn (Bối cảnh & Nhân vật)":
+elif menu == "3. Tách & Dịch Raw":
+    st.header("✂️ Tách chương & Dịch Raw")
+    
+    if not st.session_state.novel_data.get("raw_docs"):
+        st.warning("⚠️ Vui lòng tải lên ít nhất một file Raw ở bước 2 trước khi sử dụng chức năng này.")
+    else:
+        # 1. Chọn file để tách
+        doc_names = [d["filename"] for d in st.session_state.novel_data["raw_docs"]]
+        selected_doc = st.selectbox("1. Chọn file Raw cần tách thành từng chương:", doc_names)
+        doc_content = next((d["content"] for d in st.session_state.novel_data["raw_docs"] if d["filename"] == selected_doc), "")
+        
+        # 2. Thiết lập quy tắc tách
+        st.subheader("2. Thiết lập Tách Chương")
+        col_split1, col_split2 = st.columns([3, 1])
+        with col_split1:
+            split_pattern = st.text_input("Từ khóa hoặc Regex bắt đầu mỗi chương (VD: 'Chương ', 'Chapter ', '第'):", value="Chương ")
+        with col_split2:
+            st.write("")
+            st.write("")
+            if st.button("✂️ Bắt đầu Tách", use_container_width=True):
+                try:
+                    # Thử tách bằng regex (giữ nguyên từ khóa ở đầu chương)
+                    pattern = f"(?={split_pattern})"
+                    chunks = re.split(pattern, doc_content)
+                except re.error:
+                    # Fallback nếu Regex lỗi: Dùng split string thông thường
+                    chunks_raw = doc_content.split(split_pattern)
+                    chunks = [c if i == 0 else (split_pattern + c) for i, c in enumerate(chunks_raw)]
+                
+                new_chapters = {}
+                chap_idx = 1
+                for chunk in chunks:
+                    if len(chunk.strip()) < 10:  # Bỏ qua các đoạn quá ngắn
+                        continue
+                    
+                    # Lấy dòng đầu tiên làm tiêu đề nháp
+                    first_line = chunk.strip().split('\n')[0][:30]
+                    chap_key = f"Raw_Chương_{chap_idx} ({first_line}...)"
+                    
+                    new_chapters[chap_key] = {
+                        "raw": chunk.strip(),
+                        "translated": ""
+                    }
+                    chap_idx += 1
+                    
+                st.session_state.novel_data["raw_chapters"] = new_chapters
+                save_user_data_to_supabase()
+                st.success(f"Đã tách thành {len(new_chapters)} chương!")
+                st.rerun()
+        
+        # 3. Dịch từng chương
+        if st.session_state.novel_data.get("raw_chapters"):
+            st.divider()
+            st.subheader("3. Dịch Thuật Từng Chương")
+            chap_keys = list(st.session_state.novel_data["raw_chapters"].keys())
+            selected_chap = st.selectbox("Chọn chương để xem và dịch:", chap_keys)
+            
+            chap_data = st.session_state.novel_data["raw_chapters"][selected_chap]
+            
+            col_raw, col_trans = st.columns(2)
+            with col_raw:
+                st.markdown("**Bản Raw (Gốc)**")
+                raw_text = st.text_area("Nội dung Raw:", value=chap_data["raw"], height=500, key=f"raw_{selected_chap}")
+            with col_trans:
+                st.markdown("**Bản Dịch (Tiếng Việt)**")
+                if st.button("🌐 AI Dịch Chương Này", use_container_width=True):
+                    trans_system_prompt = """Bạn là một dịch giả tiểu thuyết chuyên nghiệp.
+Nhiệm vụ: Dịch đoạn văn bản truyện RAW sau sang tiếng Việt.
+Yêu cầu:
+- Dịch mượt mà, thuần Việt, không lậm văn phong máy móc.
+- Giữ nguyên nghĩa gốc, cảm xúc, văn phong và tính cách nhân vật.
+- Tuyệt đối KHÔNG tự ý thêm bớt tình tiết hay tóm tắt truyện.
+- Giữ nguyên cách phân chia đoạn văn."""
+                    
+                    with st.spinner("AI đang tiến hành dịch thuật... Quá trình này có thể mất vài chục giây."):
+                        translated_text = call_llm(
+                            system_prompt=trans_system_prompt,
+                            messages_or_prompt=f"NỘI DUNG RAW CẦN DỊCH:\n\n{raw_text}",
+                            api_keys=st.session_state.novel_data["api_keys"],
+                            model_choice=st.session_state.novel_data["selected_model"]
+                        )
+                        st.session_state.novel_data["raw_chapters"][selected_chap]["translated"] = translated_text
+                        st.session_state.novel_data["raw_chapters"][selected_chap]["raw"] = raw_text
+                        save_user_data_to_supabase()
+                        st.rerun()
+                
+                trans_text = st.text_area("Nội dung Dịch:", value=chap_data["translated"], height=500, key=f"trans_{selected_chap}")
+                
+            col_save_btn, _ = st.columns([1, 3])
+            with col_save_btn:
+                if st.button("💾 Lưu bản Dịch / Chỉnh sửa", use_container_width=True):
+                    st.session_state.novel_data["raw_chapters"][selected_chap]["raw"] = raw_text
+                    st.session_state.novel_data["raw_chapters"][selected_chap]["translated"] = trans_text
+                    save_user_data_to_supabase()
+                    st.success("Đã lưu bản cập nhật!")
+
+# ==========================================
+# PHẦN 4: AI PHỎNG VẤN VÀ XÂY DỰNG NHÂN VẬT
+# ==========================================
+elif menu == "4. AI Phỏng vấn (Bối cảnh & Nhân vật)":
     col_title, col_clear = st.columns([3, 1])
     with col_title:
         st.header("🤖 AI Phỏng vấn Trợ lý Biên tập")
@@ -342,14 +451,13 @@ elif menu == "3. AI Phỏng vấn (Bối cảnh & Nhân vật)":
             )
 
         st.session_state.novel_data["interview_history"].append({"role": "assistant", "content": ai_response})
-        # Tự động lưu cuộc trò chuyện lên Cloud
         save_user_data_to_supabase()
         st.rerun()
 
 # ==========================================
-# PHẦN 4: LẬP DÀN Ý & BỐ CỤC TỔNG THỂ
+# PHẦN 5: LẬP DÀN Ý & BỐ CỤC TỔNG THỂ
 # ==========================================
-elif menu == "4. Lập Dàn ý & Bố cục":
+elif menu == "5. Lập Dàn ý & Bố cục":
     st.header("📌 Dàn ý Chi tiết & Cốt truyện Cả Bộ Truyện")
 
     col1, col2 = st.columns([1, 1])
@@ -358,6 +466,7 @@ elif menu == "4. Lập Dàn ý & Bố cục":
             interview_context = "\n".join([f"{m['role'].upper()}: {m['content']}" for m in st.session_state.novel_data["interview_history"]])
             
             raw_context = ""
+            # Nối một ít raw tham khảo để AI nắm bắt văn phong (Giới hạn khoảng 2000 ký tự đầu của mỗi file để không bị tràn token)
             for doc in st.session_state.novel_data["raw_docs"]:
                 raw_context += f"\n--- Tệp mẫu {doc['filename']} ---\n" + doc['content'][:2000]
 
@@ -400,9 +509,9 @@ elif menu == "4. Lập Dàn ý & Bố cục":
         save_user_data_to_supabase()
 
 # ==========================================
-# PHẦN 5: AI VIẾT NHÁP & CHỈNH SỬA TỪNG CHƯƠNG
+# PHẦN 6: AI VIẾT NHÁP & CHỈNH SỬA TỪNG CHƯƠNG
 # ==========================================
-elif menu == "5. AI Viết nháp & Chỉnh sửa":
+elif menu == "6. AI Viết nháp & Chỉnh sửa":
     st.header("✍️ AI Viết Nháp & Sửa Đổi Từng Chương")
 
     chapter_num = st.number_input("Chọn số chương cần viết / sửa:", min_value=1, value=1, step=1)
@@ -466,17 +575,26 @@ elif menu == "5. AI Viết nháp & Chỉnh sửa":
                     st.rerun()
 
 # ==========================================
-# PHẦN 6: HOÀN THIỆN & XUẤT BỘ TRUYỆN
+# PHẦN 7: HOÀN THIỆN & XUẤT BỘ TRUYỆN
 # ==========================================
-elif menu == "6. Hoàn thiện & Xuất bộ truyện":
+elif menu == "7. Hoàn thiện & Xuất bộ truyện":
     st.header("🏆 Hoàn Thiện & Xuất Toàn Bộ Tiểu Thuyết")
     
     full_novel_text = ""
-    sorted_chapters = sorted(st.session_state.novel_data["chapters"].keys(), key=lambda x: int(x.split(" ")[1]) if x.split(" ")[1].isdigit() else 0)
-    
-    for ch_name in sorted_chapters:
-        full_novel_text += f"\n\n=== {ch_name} ===\n\n" + st.session_state.novel_data["chapters"][ch_name]
+    # Nếu là truyện viết thủ công từ Outline
+    if st.session_state.novel_data["chapters"]:
+        sorted_chapters = sorted(st.session_state.novel_data["chapters"].keys(), key=lambda x: int(x.split(" ")[1]) if len(x.split(" "))>1 and x.split(" ")[1].isdigit() else 0)
+        for ch_name in sorted_chapters:
+            full_novel_text += f"\n\n=== {ch_name} ===\n\n" + st.session_state.novel_data["chapters"][ch_name]
 
+    # Nếu chỉ có các bản truyện Dịch từ Raw
+    elif st.session_state.novel_data["raw_chapters"]:
+        for ch_name, data in st.session_state.novel_data["raw_chapters"].items():
+            if data["translated"]:
+                full_novel_text += f"\n\n=== {ch_name} ===\n\n" + data["translated"]
+            else:
+                full_novel_text += f"\n\n=== {ch_name} (Chưa dịch) ===\n\n" + data["raw"]
+    
     st.text_area("Xem trước bản thảo đầy đủ:", value=full_novel_text, height=400)
 
     col_exp1, col_exp2 = st.columns(2)
