@@ -56,25 +56,52 @@ if "novel_data" not in st.session_state:
 # SYSTEM PROMPT BẮT BUỘC VỀ VĂN PHONG
 STYLE_PROMPT = """
 [YÊU CẦU BẮT BUỘC VỀ VĂN PHONG VÀ HÀNH VĂN]
-- Tuyệt đối KHÔNG sử dụng từ ngữ hoa mỹ, phô trương, cường điệu hay lãng mạn hóa quá mức (tránh xa các từ ngữ kiểu ngôn tình sến sẩm, ví dụ: đau xé tâm can, tuyệt mỹ, kinh thiên động địa, ánh mắt sắc bén như dao cau...).
+- Tuyệt đối KHÔNG sử dụng từ ngữ hoa mỹ, phô trương, cường điệu hay lãng mạn hóa quá mức (tránh xa các từ ngữ kiểu ngôn tình sến sẩm).
 - Giữ giọng văn mộc mạc, gần gũi, mang đậm chất đời thường và hơi thở thực tế của bối cảnh.
-- Giữ nhịp điệu kể chuyện tỉnh táo: Kể sự việc theo lối "thấy sao nói vậy", để nhân vật quan sát sự việc bằng con mắt thực tế, không lý tưởng hóa hoàn cảnh hay nhân vật.
-- Nhịp câu ngắn gọn, gãy gọn, tập trung vào hành động thực tế, sinh hoạt phí hằng ngày và tâm lý nhân vật một cách tỉnh táo, thực dụng.
-- Lời thoại và độc thoại nội tâm phải tự nhiên, đứng ở vị thế là ngôi kể thứ ba.
-- Nhân vật phản ứng theo logic thông thường của con người trong hoàn cảnh đó.
+- Giữ nhịp điệu kể chuyện tỉnh táo: Kể sự việc theo lối "thấy sao nói vậy", để nhân vật quan sát sự việc bằng con mắt thực tế.
+- Nhịp câu ngắn gọn, gãy gọn, tập trung vào hành động thực tế và tâm lý nhân vật.
+- Lời thoại và độc thoại nội tâm phải tự nhiên, đứng ở vị thế ngôi kể thứ ba.
 """
 
 # ==========================================
-# CÁC HÀM GỌI API AI TRỰC TIẾP (ĐÃ CẬP NHẬT FIX LỖI)
+# CÁC HÀM XỬ LÝ DỮ LIỆU VỚI SUPABASE (LOAD & SAVE)
+# ==========================================
+def load_user_data_from_supabase(email):
+    """Tự động tải dữ liệu cũ của User từ Supabase về ứng dụng"""
+    if supabase:
+        try:
+            res = supabase.table("workspaces").select("workspace_data").eq("email", email).execute()
+            if res.data and len(res.data) > 0:
+                saved_data = res.data[0].get("workspace_data")
+                if saved_data and isinstance(saved_data, dict):
+                    st.session_state.novel_data.update(saved_data)
+                    st.toast("🎉 Đã tải thành công dữ liệu truyện cũ của bạn!", icon="✅")
+        except Exception as e:
+            st.error(f"Lỗi khi tải dữ liệu từ Supabase: {e}")
+
+def save_user_data_to_supabase():
+    """Tự động đồng bộ và lưu dữ liệu hiện tại lên Supabase"""
+    if supabase and st.session_state.authenticated and st.session_state.user_email:
+        try:
+            data_to_save = {
+                "email": st.session_state.user_email,
+                "workspace_data": st.session_state.novel_data
+            }
+            supabase.table("workspaces").upsert(data_to_save).execute()
+            st.toast("💾 Đã lưu toàn bộ tiến trình lên Cloud!", icon="☁️")
+        except Exception as e:
+            st.error(f"Lỗi khi lưu lên Supabase: {e}")
+
+# ==========================================
+# CÁC HÀM GỌI API AI TRỰC TIẾP
 # ==========================================
 def call_llm(system_prompt, messages_or_prompt, api_keys, model_choice):
     openai_key = api_keys.get("openai", "").strip()
     gemini_key = api_keys.get("gemini", "").strip()
     groq_key = api_keys.get("groq", "").strip()
 
-    # Kiểm tra xem người dùng có dán nhầm Supabase Key vào ô OpenAI không
     if openai_key.startswith("sb_") or "supabase" in openai_key.lower():
-        return "⚠️ LỖI CẤU HÌNH: Bạn đang dán nhầm Supabase Key vào ô OpenAI Key! Key của OpenAI chuẩn phải bắt đầu bằng 'sk-'."
+        return "⚠️ LỖI CẤU HÌNH: Bạn đang dán nhầm Supabase Key vào ô OpenAI Key! Key OpenAI chuẩn có dạng 'sk-'."
 
     provider = None
     if "Gemini" in model_choice and gemini_key:
@@ -96,7 +123,6 @@ def call_llm(system_prompt, messages_or_prompt, api_keys, model_choice):
 
     try:
         if provider == "gemini":
-            # Endpoint cập nhật tương thích tốt nhất
             url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={gemini_key}"
             headers = {"Content-Type": "application/json"}
             
@@ -116,7 +142,6 @@ def call_llm(system_prompt, messages_or_prompt, api_keys, model_choice):
             if res.status_code == 200:
                 return res.json()["candidates"][0]["content"]["parts"][0]["text"]
             else:
-                # Thử endpoint dự phòng gemini-1.5-pro nếu 2.0 chưa active trên key của bạn
                 url_fb = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key={gemini_key}"
                 res_fb = requests.post(url_fb, headers=headers, json={"contents": contents}, timeout=60)
                 if res_fb.status_code == 200:
@@ -153,11 +178,11 @@ def call_llm(system_prompt, messages_or_prompt, api_keys, model_choice):
         return f"❌ Lỗi kết nối AI: {str(e)}"
 
 # ==========================================
-# 2. XÁC THỰC TÀI KHOẢN (AUTH)
+# 2. XÁC THỰC TÀI KHOẢN & TỰ ĐỘNG NẠP DỮ LIỆU
 # ==========================================
 if not st.session_state.authenticated:
     st.title("☁️ Đăng nhập Novel Studio")
-    st.caption("Ứng dụng tự động đồng bộ tiểu thuyết và dữ liệu của bạn.")
+    st.caption("Dữ liệu dàn ý, cuộc trò chuyện và chương truyện của bạn sẽ tự động đồng bộ.")
     
     tab_login, tab_signup = st.tabs(["🔑 Đăng nhập", "📝 Đăng ký mới"])
     
@@ -170,6 +195,8 @@ if not st.session_state.authenticated:
                     res = supabase.auth.sign_in_with_password({"email": email, "password": password})
                     st.session_state.authenticated = True
                     st.session_state.user_email = email
+                    # ĐĂNG NHẬP THÀNH CÔNG -> TỰ ĐỘNG TẢI DỮ LIỆU CŨ
+                    load_user_data_from_supabase(email)
                     st.success("Đăng nhập thành công!")
                     st.rerun()
                 except Exception as e:
@@ -191,20 +218,25 @@ if not st.session_state.authenticated:
                 except Exception as e:
                     st.error(f"Lỗi đăng ký: {e}")
             else:
-                st.error("Chưa cấu hình Supabase URL/Key trong secrets nên không thể đăng ký mới.")
+                st.error("Chưa cấu hình Supabase URL/Key trong secrets.")
 
     st.stop()
 
 # ==========================================
-# 3. GIAO DIỆN CHÍNH - NOVEL STUDIO WORKSPACE
+# 3. GIAO DIỆN CHÍNH & NÚT LƯU TRỰC TIẾP
 # ==========================================
 st.sidebar.title("📖 Novel Studio")
 st.sidebar.write(f"👤 **{st.session_state.user_email}**")
 
-if st.sidebar.button("🚪 Đăng xuất"):
-    st.session_state.authenticated = False
-    st.session_state.user_email = ""
-    st.rerun()
+col_sb1, col_sb2 = st.columns(2)
+with st.sidebar:
+    if st.button("💾 Lưu dữ liệu ngay", use_container_width=True):
+        save_user_data_to_supabase()
+
+    if st.button("🚪 Đăng xuất", use_container_width=True):
+        st.session_state.authenticated = False
+        st.session_state.user_email = ""
+        st.rerun()
 
 st.sidebar.divider()
 
@@ -225,20 +257,21 @@ menu = st.sidebar.radio(
 # ==========================================
 if menu == "1. Cấu hình API Keys":
     st.header("🔑 Cấu hình các kết nối API AI")
-    st.info("Nhập API Key để AI bắt đầu hoạt động. Khuyên dùng Gemini Key vì hoàn toàn miễn phí!")
+    st.info("API Key sau khi lưu sẽ được giữ nguyên cho các lần đăng nhập sau.")
 
     col1, col2 = st.columns(2)
     with col1:
         gemini_key = st.text_input("Google Gemini API Key (Miễn phí):", value=st.session_state.novel_data["api_keys"].get("gemini", ""), type="password")
-        openai_key = st.text_input("OpenAI API Key (Nếu có, dạng sk-...):", value=st.session_state.novel_data["api_keys"].get("openai", ""), type="password")
+        openai_key = st.text_input("OpenAI API Key (Dạng sk-...):", value=st.session_state.novel_data["api_keys"].get("openai", ""), type="password")
     with col2:
-        groq_key = st.text_input("Groq API Key (Nếu có):", value=st.session_state.novel_data["api_keys"].get("groq", ""), type="password")
+        groq_key = st.text_input("Groq API Key:", value=st.session_state.novel_data["api_keys"].get("groq", ""), type="password")
         selected_model = st.selectbox("Mô hình AI ưu tiên:", ["Google Gemini (Miễn phí)", "OpenAI GPT-4o", "Groq Llama-3"])
 
     if st.button("💾 Lưu Cấu Hình API"):
         st.session_state.novel_data["api_keys"] = {"openai": openai_key, "gemini": gemini_key, "groq": groq_key}
         st.session_state.novel_data["selected_model"] = selected_model
-        st.success("Đã lưu cấu hình API thành công!")
+        save_user_data_to_supabase()
+        st.success("Đã lưu và đồng bộ API Key thành công!")
 
 # ==========================================
 # PHẦN 2: TẢI LÊN RAW REFERENCE
@@ -252,10 +285,11 @@ elif menu == "2. Tải lên RAW Reference":
             if not any(d.get("filename") == file.name for d in st.session_state.novel_data["raw_docs"]):
                 content = file.read().decode("utf-8", errors="ignore")
                 st.session_state.novel_data["raw_docs"].append({"filename": file.name, "content": content[:8000]})
-        st.success("Đã tải lên tệp Raw thành công!")
+        save_user_data_to_supabase()
+        st.success("Đã tải lên và lưu tệp Raw!")
 
     if st.session_state.novel_data["raw_docs"]:
-        st.subheader("📋 Danh sách Raw đã tải lên:")
+        st.subheader("📋 Danh sách Raw đã lưu:")
         for idx, doc in enumerate(st.session_state.novel_data["raw_docs"]):
             col_name, col_btn = st.columns([4, 1])
             with col_name:
@@ -263,6 +297,7 @@ elif menu == "2. Tải lên RAW Reference":
             with col_btn:
                 if st.button("🗑️ Xóa file", key=f"del_raw_{idx}"):
                     st.session_state.novel_data["raw_docs"].pop(idx)
+                    save_user_data_to_supabase()
                     st.rerun()
 
 # ==========================================
@@ -275,6 +310,7 @@ elif menu == "3. AI Phỏng vấn (Bối cảnh & Nhân vật)":
     with col_clear:
         if st.button("🗑️ Xóa lịch sử chat"):
             st.session_state.novel_data["interview_history"] = []
+            save_user_data_to_supabase()
             st.rerun()
 
     for msg in st.session_state.novel_data["interview_history"]:
@@ -284,6 +320,7 @@ elif menu == "3. AI Phỏng vấn (Bối cảnh & Nhân vật)":
     if not st.session_state.novel_data["interview_history"]:
         initial_prompt = "Chào bạn! Tôi là Trợ lý Biên tập viên AI. Để bắt đầu xây dựng sườn khung cho bộ truyện, bạn có thể chia sẻ: Ý tưởng ban đầu hoặc thể loại truyện mà bạn đang muốn viết là gì?"
         st.session_state.novel_data["interview_history"].append({"role": "assistant", "content": initial_prompt})
+        save_user_data_to_supabase()
         st.rerun()
 
     user_input = st.chat_input("Nhập câu trả lời hoặc suy nghĩ của bạn...")
@@ -293,12 +330,7 @@ elif menu == "3. AI Phỏng vấn (Bối cảnh & Nhân vật)":
         editor_system_prompt = """
         Bạn là một Trợ lý Biên tập viên Tiểu thuyết Chuyên nghiệp.
         Nhiệm vụ: Phỏng vấn tác giả để xây dựng nên Sườn khung câu chuyện (Thể loại, Bối cảnh, Tuyến nhân vật, Mâu thuẫn trung tâm).
-        
-        Quy tắc đối thoại:
-        1. Đọc và phân tích kỹ câu trả lời mới nhất của tác giả cùng toàn bộ lịch sử chat.
-        2. Tóm tắt ngắn gọn 1-2 điểm cốt lõi bạn đã ghi nhận được về bộ truyện.
-        3. Đặt tiếp 1-2 câu hỏi sắc bén, thực tế để phát triển chiều sâu (hoàn cảnh, mâu thuẫn, tâm lý nhân vật).
-        4. Tuyệt đối KHÔNG lặp lại câu hỏi cũ.
+        Quy tắc: Đọc kỹ câu trả lời cũ, không lặp lại câu hỏi, đặt câu hỏi tiếp theo dựa trên câu trả lời của tác giả.
         """
 
         with st.spinner("AI Biên tập đang phân tích..."):
@@ -310,6 +342,8 @@ elif menu == "3. AI Phỏng vấn (Bối cảnh & Nhân vật)":
             )
 
         st.session_state.novel_data["interview_history"].append({"role": "assistant", "content": ai_response})
+        # Tự động lưu cuộc trò chuyện lên Cloud
+        save_user_data_to_supabase()
         st.rerun()
 
 # ==========================================
@@ -333,7 +367,7 @@ elif menu == "4. Lập Dàn ý & Bố cục":
 
             {STYLE_PROMPT}
 
-            Yêu cầu Bố cục Dàn ý đầu ra:
+            Yêu cầu Bố cục Dàn ý:
             I. TỔNG QUAN BỘ TRUYỆN (Tên truyện, Bối cảnh, Mâu thuẫn chính, Tuyến nhân vật)
             II. DÀN Ý CHI TIẾT TỪNG CHƯƠNG (Chương 1, Chương 2, Chương 3...)
             """
@@ -348,25 +382,28 @@ elif menu == "4. Lập Dàn ý & Bố cục":
                     model_choice=st.session_state.novel_data["selected_model"]
                 )
                 st.session_state.novel_data["outline"] = generated_outline
-                st.success("Đã tạo Dàn ý tổng thể thành công!")
+                save_user_data_to_supabase()
+                st.success("Đã tạo và lưu Dàn ý tổng thể thành công!")
                 st.rerun()
 
     with col2:
         if st.button("🗑️ Xóa Dàn Ý"):
             st.session_state.novel_data["outline"] = ""
+            save_user_data_to_supabase()
             st.rerun()
 
     outline_text = st.text_area("Bảng chỉnh sửa Dàn ý tổng thể:", value=st.session_state.novel_data["outline"], height=400)
-    st.session_state.novel_data["outline"] = outline_text
+    if outline_text != st.session_state.novel_data["outline"]:
+        st.session_state.novel_data["outline"] = outline_text
+
+    if st.button("💾 Lưu Dàn Ý"):
+        save_user_data_to_supabase()
 
 # ==========================================
 # PHẦN 5: AI VIẾT NHÁP & CHỈNH SỬA TỪNG CHƯƠNG
 # ==========================================
 elif menu == "5. AI Viết nháp & Chỉnh sửa":
     st.header("✍️ AI Viết Nháp & Sửa Đổi Từng Chương")
-
-    with st.expander("🛡️ Quy chuẩn văn phong bắt buộc (Bật mặc định)", expanded=False):
-        st.code(STYLE_PROMPT, language="markdown")
 
     chapter_num = st.number_input("Chọn số chương cần viết / sửa:", min_value=1, value=1, step=1)
     chapter_key = f"Chương {chapter_num}"
@@ -406,7 +443,8 @@ elif menu == "5. AI Viết nháp & Chỉnh sửa":
                     model_choice=st.session_state.novel_data["selected_model"]
                 )
                 st.session_state.novel_data["chapters"][chapter_key] = generated_chapter
-                st.success(f"Đã tạo xong bản nháp cho {chapter_key}!")
+                save_user_data_to_supabase()
+                st.success(f"Đã tạo và lưu xong {chapter_key}!")
                 st.rerun()
 
     with col_action2:
@@ -417,11 +455,13 @@ elif menu == "5. AI Viết nháp & Chỉnh sửa":
         with col_save:
             if st.button("💾 Lưu Chương Này"):
                 st.session_state.novel_data["chapters"][chapter_key] = edited_content
-                st.success("Đã lưu chương!")
+                save_user_data_to_supabase()
+                st.success("Đã lưu chương lên Cloud!")
         with col_del:
             if st.button("🗑️ Xóa Chương Này"):
                 if chapter_key in st.session_state.novel_data["chapters"]:
                     del st.session_state.novel_data["chapters"][chapter_key]
+                    save_user_data_to_supabase()
                     st.success(f"Đã xóa {chapter_key}!")
                     st.rerun()
 
@@ -443,13 +483,5 @@ elif menu == "6. Hoàn thiện & Xuất bộ truyện":
     with col_exp1:
         st.download_button(label="📥 Tải xuống Toàn bộ (.txt)", data=full_novel_text, file_name="Toan_Bo_Tieu_Thuyet.txt", mime="text/plain")
     with col_exp2:
-        if st.button("☁️ Đăng lưu toàn bộ lên Supabase"):
-            if supabase:
-                try:
-                    data_to_save = {"email": st.session_state.user_email, "workspace_data": st.session_state.novel_data}
-                    supabase.table("workspaces").upsert(data_to_save).execute()
-                    st.success("Đã đồng bộ toàn bộ tác phẩm lên Supabase thành công!")
-                except Exception as e:
-                    st.error(f"Lỗi khi lưu lên Supabase: {e}")
-            else:
-                st.error("Chưa kết nối Supabase.")
+        if st.button("☁️ Đồng bộ lưu thủ công lên Supabase"):
+            save_user_data_to_supabase()
