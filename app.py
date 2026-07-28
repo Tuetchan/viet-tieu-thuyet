@@ -12,7 +12,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# Lấy Secrets an toàn (không bị crash nếu chạy local/Codespaces chưa tạo secrets)
+# Lấy Secrets an toàn
 SUPABASE_URL = ""
 SUPABASE_KEY = ""
 
@@ -35,7 +35,7 @@ def init_supabase():
 
 supabase = init_supabase()
 
-# Khởi tạo Session State cho ứng dụng
+# Khởi tạo Session State
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
 if "user_email" not in st.session_state:
@@ -43,7 +43,7 @@ if "user_email" not in st.session_state:
 if "novel_data" not in st.session_state:
     st.session_state.novel_data = {
         "api_keys": {"openai": "", "gemini": "", "groq": ""},
-        "selected_model": "Google Gemini 1.5 Pro",
+        "selected_model": "Google Gemini (Miễn phí)",
         "genre": "",
         "setting": "",
         "characters": "",
@@ -65,39 +65,45 @@ STYLE_PROMPT = """
 """
 
 # ==========================================
-# CÁC HÀM GỌI API AI TRỰC TIẾP
+# CÁC HÀM GỌI API AI TRỰC TIẾP (ĐÃ CẬP NHẬT FIX LỖI)
 # ==========================================
 def call_llm(system_prompt, messages_or_prompt, api_keys, model_choice):
     openai_key = api_keys.get("openai", "").strip()
     gemini_key = api_keys.get("gemini", "").strip()
     groq_key = api_keys.get("groq", "").strip()
 
+    # Kiểm tra xem người dùng có dán nhầm Supabase Key vào ô OpenAI không
+    if openai_key.startswith("sb_") or "supabase" in openai_key.lower():
+        return "⚠️ LỖI CẤU HÌNH: Bạn đang dán nhầm Supabase Key vào ô OpenAI Key! Key của OpenAI chuẩn phải bắt đầu bằng 'sk-'."
+
     provider = None
-    if "OpenAI" in model_choice and openai_key:
-        provider = "openai"
-    elif "Gemini" in model_choice and gemini_key:
+    if "Gemini" in model_choice and gemini_key:
         provider = "gemini"
+    elif "OpenAI" in model_choice and openai_key:
+        provider = "openai"
     elif "Groq" in model_choice and groq_key:
         provider = "groq"
     else:
-        if openai_key:
-            provider = "openai"
-        elif gemini_key:
+        if gemini_key:
             provider = "gemini"
+        elif openai_key:
+            provider = "openai"
         elif groq_key:
             provider = "groq"
 
     if not provider:
-        return "⚠️ BẠN CHƯA CẤU HÌNH API KEY! Vui lòng vào mục '1. Cấu hình API Keys' nhập API Key (Gemini, OpenAI hoặc Groq) để AI hoạt động."
+        return "⚠️ BẠN CHƯA CẤU HÌNH API KEY! Vui lòng vào mục '1. Cấu hình API Keys' nhập API Key để AI hoạt động."
 
     try:
         if provider == "gemini":
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={gemini_key}"
+            # Endpoint cập nhật tương thích tốt nhất
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={gemini_key}"
             headers = {"Content-Type": "application/json"}
+            
             contents = []
             if system_prompt:
                 contents.append({"role": "user", "parts": [{"text": f"[YÊU CẦU HỆ THỐNG]: {system_prompt}"}]})
-                contents.append({"role": "model", "parts": [{"text": "Đã hiểu yêu cầu hệ thống. Tôi sẵn sàng."}]})
+                contents.append({"role": "model", "parts": [{"text": "Đã hiểu yêu cầu hệ thống."}]})
 
             if isinstance(messages_or_prompt, list):
                 for m in messages_or_prompt:
@@ -110,6 +116,11 @@ def call_llm(system_prompt, messages_or_prompt, api_keys, model_choice):
             if res.status_code == 200:
                 return res.json()["candidates"][0]["content"]["parts"][0]["text"]
             else:
+                # Thử endpoint dự phòng gemini-1.5-pro nếu 2.0 chưa active trên key của bạn
+                url_fb = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key={gemini_key}"
+                res_fb = requests.post(url_fb, headers=headers, json={"contents": contents}, timeout=60)
+                if res_fb.status_code == 200:
+                    return res_fb.json()["candidates"][0]["content"]["parts"][0]["text"]
                 return f"❌ Lỗi Gemini ({res.status_code}): {res.text}"
 
         elif provider == "openai":
@@ -214,15 +225,15 @@ menu = st.sidebar.radio(
 # ==========================================
 if menu == "1. Cấu hình API Keys":
     st.header("🔑 Cấu hình các kết nối API AI")
-    st.info("Nhập API Key để AI bắt đầu hoạt động và tư duy thực tế.")
+    st.info("Nhập API Key để AI bắt đầu hoạt động. Khuyên dùng Gemini Key vì hoàn toàn miễn phí!")
 
     col1, col2 = st.columns(2)
     with col1:
-        openai_key = st.text_input("OpenAI API Key:", value=st.session_state.novel_data["api_keys"].get("openai", ""), type="password")
-        gemini_key = st.text_input("Gemini API Key (Khuyên dùng):", value=st.session_state.novel_data["api_keys"].get("gemini", ""), type="password")
+        gemini_key = st.text_input("Google Gemini API Key (Miễn phí):", value=st.session_state.novel_data["api_keys"].get("gemini", ""), type="password")
+        openai_key = st.text_input("OpenAI API Key (Nếu có, dạng sk-...):", value=st.session_state.novel_data["api_keys"].get("openai", ""), type="password")
     with col2:
-        groq_key = st.text_input("Groq API Key:", value=st.session_state.novel_data["api_keys"].get("groq", ""), type="password")
-        selected_model = st.selectbox("Mô hình AI ưu tiên:", ["Google Gemini 1.5 Pro", "OpenAI GPT-4o", "Groq Llama-3"])
+        groq_key = st.text_input("Groq API Key (Nếu có):", value=st.session_state.novel_data["api_keys"].get("groq", ""), type="password")
+        selected_model = st.selectbox("Mô hình AI ưu tiên:", ["Google Gemini (Miễn phí)", "OpenAI GPT-4o", "Groq Llama-3"])
 
     if st.button("💾 Lưu Cấu Hình API"):
         st.session_state.novel_data["api_keys"] = {"openai": openai_key, "gemini": gemini_key, "groq": groq_key}
@@ -234,8 +245,6 @@ if menu == "1. Cấu hình API Keys":
 # ==========================================
 elif menu == "2. Tải lên RAW Reference":
     st.header("📚 Tải lên bộ Raw Tham Khảo")
-    st.write("Tải lên các file `.txt` tham khảo. AI sẽ đọc các file này để học bối cảnh và phối hợp tạo Dàn ý/Chương nháp.")
-
     uploaded_files = st.file_uploader("Chọn các tệp Raw tham khảo (.txt, .md):", type=["txt", "md"], accept_multiple_files=True)
 
     if uploaded_files:
@@ -257,7 +266,7 @@ elif menu == "2. Tải lên RAW Reference":
                     st.rerun()
 
 # ==========================================
-# PHẦN 3: AI PHỎNG VẤN VÀ XÂY DỰNG NHÂN VẬT (THẬT 100%)
+# PHẦN 3: AI PHỎNG VẤN VÀ XÂY DỰNG NHÂN VẬT
 # ==========================================
 elif menu == "3. AI Phỏng vấn (Bối cảnh & Nhân vật)":
     col_title, col_clear = st.columns([3, 1])
@@ -268,14 +277,10 @@ elif menu == "3. AI Phỏng vấn (Bối cảnh & Nhân vật)":
             st.session_state.novel_data["interview_history"] = []
             st.rerun()
 
-    st.caption("AI sẽ đóng vai Trợ lý Biên tập viên. Từng câu trả lời của bạn sẽ được AI tổng hợp để dựng nên Sườn khung (Bối cảnh, Nhân vật, Mâu thuẫn) của câu chuyện.")
-
-    # Hiển thị lịch sử chat
     for msg in st.session_state.novel_data["interview_history"]:
         with st.chat_message(msg["role"]):
             st.write(msg["content"])
 
-    # Nếu chưa có câu đầu tiên
     if not st.session_state.novel_data["interview_history"]:
         initial_prompt = "Chào bạn! Tôi là Trợ lý Biên tập viên AI. Để bắt đầu xây dựng sườn khung cho bộ truyện, bạn có thể chia sẻ: Ý tưởng ban đầu hoặc thể loại truyện mà bạn đang muốn viết là gì?"
         st.session_state.novel_data["interview_history"].append({"role": "assistant", "content": initial_prompt})
@@ -283,10 +288,8 @@ elif menu == "3. AI Phỏng vấn (Bối cảnh & Nhân vật)":
 
     user_input = st.chat_input("Nhập câu trả lời hoặc suy nghĩ của bạn...")
     if user_input:
-        # Lưu tin nhắn người dùng
         st.session_state.novel_data["interview_history"].append({"role": "user", "content": user_input})
 
-        # Gọi AI suy luận câu tiếp theo
         editor_system_prompt = """
         Bạn là một Trợ lý Biên tập viên Tiểu thuyết Chuyên nghiệp.
         Nhiệm vụ: Phỏng vấn tác giả để xây dựng nên Sườn khung câu chuyện (Thể loại, Bối cảnh, Tuyến nhân vật, Mâu thuẫn trung tâm).
@@ -294,11 +297,11 @@ elif menu == "3. AI Phỏng vấn (Bối cảnh & Nhân vật)":
         Quy tắc đối thoại:
         1. Đọc và phân tích kỹ câu trả lời mới nhất của tác giả cùng toàn bộ lịch sử chat.
         2. Tóm tắt ngắn gọn 1-2 điểm cốt lõi bạn đã ghi nhận được về bộ truyện.
-        3. Đặt tiếp 1-2 câu hỏi sắc bén, thực tế để phát triển chiều sâu (ví dụ: hoàn cảnh thực tế, mâu thuẫn chính, tâm lý nhân vật, logic thế giới).
-        4. Tuyệt đối KHÔNG lặp lại câu hỏi cũ. Giữ giọng văn thân thiện, chuyên nghiệp, khơi gợi sáng tạo.
+        3. Đặt tiếp 1-2 câu hỏi sắc bén, thực tế để phát triển chiều sâu (hoàn cảnh, mâu thuẫn, tâm lý nhân vật).
+        4. Tuyệt đối KHÔNG lặp lại câu hỏi cũ.
         """
 
-        with st.spinner("AI Biên tập đang suy nghĩ và phân tích câu trả lời..."):
+        with st.spinner("AI Biên tập đang phân tích..."):
             ai_response = call_llm(
                 system_prompt=editor_system_prompt,
                 messages_or_prompt=st.session_state.novel_data["interview_history"],
@@ -310,16 +313,14 @@ elif menu == "3. AI Phỏng vấn (Bối cảnh & Nhân vật)":
         st.rerun()
 
 # ==========================================
-# PHẦN 4: LẬP DÀN Ý & BỐ CỤC TỔNG THỂ (LIÊN KẾT TOÀN BỘ DỮ LIỆU)
+# PHẦN 4: LẬP DÀN Ý & BỐ CỤC TỔNG THỂ
 # ==========================================
 elif menu == "4. Lập Dàn ý & Bố cục":
     st.header("📌 Dàn ý Chi tiết & Cốt truyện Cả Bộ Truyện")
-    st.caption("Dàn ý sẽ được AI tự động đúc kết từ: Lịch sử phỏng vấn AI + Các tệp Raw tham khảo đã tải lên.")
 
     col1, col2 = st.columns([1, 1])
     with col1:
         if st.button("🪄 AI Tổng Hợp & Tạo Dàn Ý Tự Động"):
-            # Tổng hợp dữ liệu từ phỏng vấn và raw
             interview_context = "\n".join([f"{m['role'].upper()}: {m['content']}" for m in st.session_state.novel_data["interview_history"]])
             
             raw_context = ""
@@ -328,26 +329,18 @@ elif menu == "4. Lập Dàn ý & Bố cục":
 
             outline_system_prompt = f"""
             Bạn là Chuyên gia Cấu trúc Cốt truyện Tiểu thuyết.
-            Nhiệm vụ: Hãy phân tích toàn bộ thông tin phỏng vấn tác giả và các tài liệu Raw tham khảo dưới đây để tổng hợp và lập ra DÀN Ý CHI TIẾT TỔNG THỂ CẢ BỘ TRUYỆN.
+            Nhiệm vụ: Phân tích toàn bộ thông tin phỏng vấn tác giả và tài liệu Raw tham khảo để tạo DÀN Ý CHI TIẾT TỔNG THỂ CẢ BỘ TRUYỆN.
 
             {STYLE_PROMPT}
 
             Yêu cầu Bố cục Dàn ý đầu ra:
-            I. TỔNG QUAN BỘ TRUYỆN
-            - Tên truyện dự kiến:
-            - Thể loại & Bối cảnh chính:
-            - Mâu thuẫn trung tâm & Chủ đề chính:
-            - Thiết lập Nhân vật chính & Nhân vật phụ (Tính cách, động cơ, hoàn cảnh):
-
-            II. DÀN Ý CHI TIẾT TỪNG CHƯƠNG (Tạo ít nhất 5-10 chương ban đầu)
-            - Chương 1: [Tên chương] -> Tóm tắt sự việc, xung đột chính, diễn biến tâm lý nhân vật.
-            - Chương 2: [Tên chương] -> Tóm tắt sự việc, xung đột chính, diễn biến tâm lý nhân vật.
-            ...
+            I. TỔNG QUAN BỘ TRUYỆN (Tên truyện, Bối cảnh, Mâu thuẫn chính, Tuyến nhân vật)
+            II. DÀN Ý CHI TIẾT TỪNG CHƯƠNG (Chương 1, Chương 2, Chương 3...)
             """
 
-            combined_prompt = f"=== DỮ LIỆU PHỎNG VẤN VỚI TÁC GIẢ ===\n{interview_context}\n\n=== DỮ LIỆU RAW THAM KHẢO ===\n{raw_context}"
+            combined_prompt = f"=== DỮ LIỆU PHỎNG VẤN ===\n{interview_context}\n\n=== DỮ LIỆU RAW THAM KHẢO ===\n{raw_context}"
 
-            with st.spinner("AI đang đúc kết thông tin và tạo Dàn ý tổng thể..."):
+            with st.spinner("AI đang đúc kết thông tin và tạo Dàn ý..."):
                 generated_outline = call_llm(
                     system_prompt=outline_system_prompt,
                     messages_or_prompt=combined_prompt,
@@ -363,15 +356,14 @@ elif menu == "4. Lập Dàn ý & Bố cục":
             st.session_state.novel_data["outline"] = ""
             st.rerun()
 
-    outline_text = st.text_area("Bảng chỉnh sửa Dàn ý tổng thể (Bạn có thể sửa trực tiếp):", value=st.session_state.novel_data["outline"], height=400)
+    outline_text = st.text_area("Bảng chỉnh sửa Dàn ý tổng thể:", value=st.session_state.novel_data["outline"], height=400)
     st.session_state.novel_data["outline"] = outline_text
 
 # ==========================================
-# PHẦN 5: AI VIẾT NHÁP & CHỈNH SỬA TỪNG CHƯƠNG (LIÊN KẾT DÀN Ý)
+# PHẦN 5: AI VIẾT NHÁP & CHỈNH SỬA TỪNG CHƯƠNG
 # ==========================================
 elif menu == "5. AI Viết nháp & Chỉnh sửa":
     st.header("✍️ AI Viết Nháp & Sửa Đổi Từng Chương")
-    st.caption("AI sẽ viết nháp dựa trên: Dàn ý tổng thể + Bối cảnh phỏng vấn + Quy chuẩn văn phong đời thường.")
 
     with st.expander("🛡️ Quy chuẩn văn phong bắt buộc (Bật mặc định)", expanded=False):
         st.code(STYLE_PROMPT, language="markdown")
@@ -383,12 +375,9 @@ elif menu == "5. AI Viết nháp & Chỉnh sửa":
 
     col_action1, col_action2 = st.columns(2)
     with col_action1:
-        extra_note = st.text_area("Yêu cầu/Ghi chú riêng cho chương này (nếu có):", key=f"prompt_{chapter_key}", placeholder="Ví dụ: Tập trung tả sâu tâm lý nhân vật khi phát hiện bị mất tiền...")
+        extra_note = st.text_area("Yêu cầu/Ghi chú riêng cho chương này (nếu có):", key=f"prompt_{chapter_key}")
         
         if st.button("🚀 AI Viết Nháp Chương Này"):
-            if not st.session_state.novel_data["outline"]:
-                st.warning("⚠️ Bạn chưa có Dàn ý! Nên vào mục '4. Lập Dàn ý' để tạo dàn ý trước giúp AI viết chuẩn xác nhất.")
-
             interview_context = "\n".join([f"{m['role'].upper()}: {m['content']}" for m in st.session_state.novel_data["interview_history"]])
 
             draft_system_prompt = f"""
@@ -396,11 +385,6 @@ elif menu == "5. AI Viết nháp & Chỉnh sửa":
             Nhiệm vụ: Hãy viết bản nháp hoàn chỉnh cho {chapter_key}.
 
             {STYLE_PROMPT}
-
-            Yêu cầu kết nối dữ liệu:
-            1. Bám sát Dàn ý tổng thể của bộ truyện (đặc biệt là yêu cầu của {chapter_key}).
-            2. Thể hiện đúng tính cách nhân vật và bối cảnh đã thống nhất trong phần phỏng vấn.
-            3. Viết chi tiết, có lời thoại tự nhiên, hành động thực tế, độ dài vừa đủ.
             """
 
             combined_prompt = f"""
@@ -427,7 +411,7 @@ elif menu == "5. AI Viết nháp & Chỉnh sửa":
 
     with col_action2:
         st.subheader(f"Nội dung bản nháp: {chapter_key}")
-        edited_content = st.text_area("Nội dung chương (chỉnh sửa trực tiếp):", value=current_draft, height=350)
+        edited_content = st.text_area("Nội dung chương:", value=current_draft, height=350)
         
         col_save, col_del = st.columns(2)
         with col_save:
@@ -448,7 +432,6 @@ elif menu == "6. Hoàn thiện & Xuất bộ truyện":
     st.header("🏆 Hoàn Thiện & Xuất Toàn Bộ Tiểu Thuyết")
     
     full_novel_text = ""
-    # Sắp xếp chương theo thứ tự số
     sorted_chapters = sorted(st.session_state.novel_data["chapters"].keys(), key=lambda x: int(x.split(" ")[1]) if x.split(" ")[1].isdigit() else 0)
     
     for ch_name in sorted_chapters:
