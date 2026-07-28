@@ -50,7 +50,7 @@ if "novel_data" not in st.session_state:
         "characters": "",
         "outline": "",
         "raw_docs": [],
-        "raw_chapters": {}, # THÊM MỚI: Nơi lưu các chương Raw đã tách và dịch
+        "raw_chapters": {}, # Nơi lưu các chương Raw đã tách và dịch
         "interview_history": [],
         "chapters": {}
     }
@@ -100,83 +100,87 @@ def save_user_data_to_supabase():
 # ==========================================
 # CÁC HÀM GỌI API AI TRỰC TIẾP
 # ==========================================
-def generate_with_fallback(prompt, system_instruction=None, is_json=False, temperature=None):
-    keys = st.session_state.get('api_keys', [])
-    if not keys:
-        return None, "❌ Chưa cấu hình API Key!"
+def call_llm(system_prompt, messages_or_prompt, api_keys, model_choice):
+    openai_key = api_keys.get("openai", "").strip()
+    gemini_key = api_keys.get("gemini", "").strip()
+    groq_key = api_keys.get("groq", "").strip()
 
-    models_to_try = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.5-pro']
+    if openai_key.startswith("sb_") or "supabase" in openai_key.lower():
+        return "⚠️ LỖI CẤU HÌNH: Bạn đang dán nhầm Supabase Key vào ô OpenAI Key! Key OpenAI chuẩn có dạng 'sk-'."
 
-    for key in keys:
-        try:
-            client = genai.Client(api_key=key)
-        except Exception:
-            continue
+    provider = None
+    if "Gemini" in model_choice and gemini_key:
+        provider = "gemini"
+    elif "OpenAI" in model_choice and openai_key:
+        provider = "openai"
+    elif "Groq" in model_choice and groq_key:
+        provider = "groq"
+    else:
+        if gemini_key:
+            provider = "gemini"
+        elif openai_key:
+            provider = "openai"
+        elif groq_key:
+            provider = "groq"
 
-        for model_name in models_to_try:
-            try:
-                config_kwargs = {}
-                if system_instruction: config_kwargs['system_instruction'] = system_instruction
-                if is_json: config_kwargs['response_mime_type'] = "application/json"
-                if temperature is not None: config_kwargs['temperature'] = temperature
+    if not provider:
+        return "⚠️ BẠN CHƯA CẤU HÌNH API KEY! Vui lòng vào mục '1. Cấu hình API Keys' nhập API Key để AI hoạt động."
 
-                config = types.GenerateContentConfig(**config_kwargs) if config_kwargs else None
-
-                res = client.models.generate_content(
-                    model=model_name, contents=prompt, config=config
-                )
-                if res and res.text: return res.text, None
-            except Exception:
-                continue
-                    
-    return None, "⚠️ Tất cả API Key/Models đều bận hoặc hết quota. Vui lòng thử lại sau."
-
-def auto_split_chapters(full_text):
-    pattern = r'(?=(?:第[0-9一二三四五六七八九十百千万]+[章卷]|Chapter\s*\d+|Chương\s*\d+))'
-    parts = re.split(pattern, full_text)
-    chapters = {}
-    idx = 1
-    for part in parts:
-        cleaned = part.strip()
-        if not cleaned: continue
-        first_line = cleaned.split('\n')[0][:50]
-        title = first_line if any(k in first_line for k in ['第', 'Chapter', 'Chương']) else f"Chương {idx}"
-        chapters[title] = cleaned
-        idx += 1
-    if len(chapters) <= 1 and len(full_text) > 3000:
-        chapters = {}
-        chunk_size = 3000
-        for i in range(0, len(full_text), chunk_size):
-            ch_num = (i // chunk_size) + 1
-            chapters[f"Chương {ch_num}"] = full_text[i:i+chunk_size]
-    return chapters
-
-def scrape_truyen_tu_link(url_goc, chuong_bat_dau, chuong_ket_thuc, progress_bar, status_text):
-    headers = {'User-Agent': 'Mozilla/5.0'}
-    scraped_chapters = {}
-    total_ch = chuong_ket_thuc - chuong_bat_dau + 1
-    
-    for i in range(chuong_bat_dau, chuong_ket_thuc + 1):
-        url = f"{url_goc}{i}.html"
-        try:
-            status_text.info(f"⏳ Đang tải Raw chương {i}: {url}...")
-            response = requests.get(url, headers=headers, timeout=10)
-            response.encoding = 'gbk' 
-            soup = BeautifulSoup(response.text, "html.parser")
-            noi_dung = soup.find("div", class_="read_chapterDetail")
+    try:
+        if provider == "gemini":
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={gemini_key}"
+            headers = {"Content-Type": "application/json"}
             
-            if noi_dung:
-                tieu_de = soup.find("div", class_="read_chapterName")
-                ten_chuong = tieu_de.find("h1").text.strip() if tieu_de and tieu_de.find("h1") else f"Chương {i}"
-                cac_doan_van = noi_dung.find_all("p")
-                noi_dung_text = "\n".join([p.text.strip() for p in cac_doan_van]) if cac_doan_van else noi_dung.get_text(separator="\n").strip()
-                scraped_chapters[f"{i}. {ten_chuong}"] = noi_dung_text
-        except Exception as e:
-            st.error(f"Lỗi mạng khi tải chương {i}: {e}")
-        
-        progress_bar.progress((i - chuong_bat_dau + 1) / total_ch)
-        time.sleep(0.5) 
-    return scraped_chapters
+            contents = []
+            if system_prompt:
+                contents.append({"role": "user", "parts": [{"text": f"[YÊU CẦU HỆ THỐNG]: {system_prompt}"}]})
+                contents.append({"role": "model", "parts": [{"text": "Đã hiểu yêu cầu hệ thống."}]})
+
+            if isinstance(messages_or_prompt, list):
+                for m in messages_or_prompt:
+                    role = "user" if m["role"] == "user" else "model"
+                    contents.append({"role": role, "parts": [{"text": m["content"]}]})
+            else:
+                contents.append({"role": "user", "parts": [{"text": str(messages_or_prompt)}]})
+
+            res = requests.post(url, headers=headers, json={"contents": contents}, timeout=60)
+            if res.status_code == 200:
+                return res.json()["candidates"][0]["content"]["parts"][0]["text"]
+            else:
+                url_fb = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key={gemini_key}"
+                res_fb = requests.post(url_fb, headers=headers, json={"contents": contents}, timeout=60)
+                if res_fb.status_code == 200:
+                    return res_fb.json()["candidates"][0]["content"]["parts"][0]["text"]
+                return f"❌ Lỗi Gemini ({res.status_code}): {res.text}"
+
+        elif provider == "openai":
+            headers = {"Authorization": f"Bearer {openai_key}", "Content-Type": "application/json"}
+            msgs = [{"role": "system", "content": system_prompt}]
+            if isinstance(messages_or_prompt, list):
+                msgs.extend(messages_or_prompt)
+            else:
+                msgs.append({"role": "user", "content": str(messages_or_prompt)})
+            res = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json={"model": "gpt-4o-mini", "messages": msgs, "temperature": 0.7}, timeout=60)
+            if res.status_code == 200:
+                return res.json()["choices"][0]["message"]["content"]
+            else:
+                return f"❌ Lỗi OpenAI ({res.status_code}): {res.text}"
+
+        elif provider == "groq":
+            headers = {"Authorization": f"Bearer {groq_key}", "Content-Type": "application/json"}
+            msgs = [{"role": "system", "content": system_prompt}]
+            if isinstance(messages_or_prompt, list):
+                msgs.extend(messages_or_prompt)
+            else:
+                msgs.append({"role": "user", "content": str(messages_or_prompt)})
+            res = requests.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json={"model": "llama-3.3-70b-versatile", "messages": msgs, "temperature": 0.7}, timeout=60)
+            if res.status_code == 200:
+                return res.json()["choices"][0]["message"]["content"]
+            else:
+                return f"❌ Lỗi Groq ({res.status_code}): {res.text}"
+
+    except Exception as e:
+        return f"❌ Lỗi kết nối AI: {str(e)}"
 
 # ==========================================
 # 2. XÁC THỰC TÀI KHOẢN & TỰ ĐỘNG NẠP DỮ LIỆU
@@ -245,7 +249,7 @@ menu = st.sidebar.radio(
     [
         "1. Cấu hình API Keys",
         "2. Tải lên RAW Reference",
-        "3. Tách & Dịch Raw", # MENU MỚI
+        "3. Tách & Dịch Raw", 
         "4. AI Phỏng vấn (Bối cảnh & Nhân vật)",
         "5. Lập Dàn ý & Bố cục",
         "6. AI Viết nháp & Chỉnh sửa",
