@@ -96,7 +96,7 @@ def save_user_data_to_supabase():
             st.error(f"Lỗi khi lưu lên Supabase: {e}")
 
 # ==========================================
-# HÀM GỌI LLM SIÊU CẤP (ĐÃ FIX MODEL 1.5-FLASH)
+# HÀM GỌI LLM SIÊU CẤP (FIX 429 & FIX 404 NOT FOUND)
 # ==========================================
 def call_llm(system_prompt, messages_or_prompt, api_keys, model_choice):
     gemini_keys_str = api_keys.get("gemini", "")
@@ -115,11 +115,12 @@ def call_llm(system_prompt, messages_or_prompt, api_keys, model_choice):
         last_error = ""
         for key in gemini_keys:
             try:
-                # ĐÃ ĐỔI SANG MÔ HÌNH 1.5-FLASH CHUẨN MIỄN PHÍ
-                url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={key}"
-                headers = {"Content-Type": "application/json"}
-                
+                # 1. Đưa System Prompt vào chung nội dung hội thoại (Tránh lỗi cấu trúc API mới của Google)
                 contents = []
+                if system_prompt:
+                    contents.append({"role": "user", "parts": [{"text": f"[YÊU CẦU HỆ THỐNG]: {system_prompt}"}]})
+                    contents.append({"role": "model", "parts": [{"text": "Tôi đã hiểu yêu cầu hệ thống."}]})
+
                 if isinstance(messages_or_prompt, list):
                     for m in messages_or_prompt:
                         role = "user" if m["role"] == "user" else "model"
@@ -127,22 +128,43 @@ def call_llm(system_prompt, messages_or_prompt, api_keys, model_choice):
                 else:
                     contents.append({"role": "user", "parts": [{"text": str(messages_or_prompt)}]})
 
-                # Gửi System Prompt theo định dạng chuẩn mới nhất của Google
                 payload = {"contents": contents}
-                if system_prompt:
-                    payload["system_instruction"] = {"parts": [{"text": system_prompt}]}
-
-                res = requests.post(url, headers=headers, json=payload, timeout=60)
+                headers = {"Content-Type": "application/json"}
                 
-                if res.status_code == 200:
-                    return res.json()["candidates"][0]["content"]["parts"][0]["text"]
-                elif res.status_code == 429:
-                    last_error = "Rate Limit 429"
-                    time.sleep(1.5)
-                    continue # Thử key khác
-                else:
-                    last_error = f"Lỗi {res.status_code}: {res.text}"
-                    continue # Thử key khác
+                # 2. Danh sách các Endpoints để chống lỗi 404 (Thử bản v1 chính thức, nếu lỗi thì thử bản v1beta)
+                endpoints_to_try = [
+                    f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={key}",
+                    f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={key}",
+                    f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={key}"
+                ]
+                
+                key_failed = False
+                for url in endpoints_to_try:
+                    res = requests.post(url, headers=headers, json=payload, timeout=60)
+                    
+                    if res.status_code == 200:
+                        return res.json()["candidates"][0]["content"]["parts"][0]["text"]
+                    
+                    elif res.status_code == 429:
+                        last_error = "Rate Limit 429 (Quá tải)"
+                        time.sleep(1.5)
+                        key_failed = True
+                        break # Chuyển sang thử Key tiếp theo ngay lập tức
+                    
+                    elif res.status_code == 404:
+                        last_error = f"Lỗi 404 (Không tìm thấy model)"
+                        # Không break, tiếp tục vòng lặp thử url tiếp theo với cùng Key này
+                        continue 
+                        
+                    else:
+                        last_error = f"Lỗi {res.status_code}: {res.text}"
+                        key_failed = True
+                        break # Chuyển sang thử Key tiếp theo
+                
+                # Nếu đã thử hết các endpoint mà key vẫn tạch (như lỗi 429), thì thử key tiếp theo trong mảng
+                if key_failed:
+                    continue
+                    
             except Exception as e:
                 last_error = str(e)
                 continue
@@ -175,7 +197,7 @@ def call_llm(system_prompt, messages_or_prompt, api_keys, model_choice):
     return "⚠️ Lỗi: Không thể xác định mô hình AI."
 
 # ==========================================
-# CÁC PHẦN GIAO DIỆN BÊN DƯỚI GIỮ NGUYÊN
+# CÁC PHẦN GIAO DIỆN BÊN DƯỚI (GIỮ NGUYÊN)
 # ==========================================
 if not st.session_state.authenticated:
     st.title("☁️ Đăng nhập Novel Studio")
