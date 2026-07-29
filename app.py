@@ -5,6 +5,7 @@ import json
 import re
 import random 
 import time
+import threading
 from google import genai
 from google.genai import types
 
@@ -45,6 +46,9 @@ if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
 if "user_email" not in st.session_state:
     st.session_state.user_email = ""
+if "trans_status" not in st.session_state:
+    st.session_state.trans_status = {} # Lưu trạng thái dịch ngầm
+    
 if "novel_data" not in st.session_state:
     st.session_state.novel_data = {
         "api_keys": {"openai": "", "gemini": ""},
@@ -69,7 +73,7 @@ STYLE_PROMPT = """
 """
 
 # ==========================================
-# CÁC HÀM XỬ LÝ DỮ LIỆU
+# CÁC HÀM XỬ LÝ DỮ LIỆU & LUỒNG NGẦM
 # ==========================================
 def load_user_data_from_supabase(email):
     if supabase:
@@ -97,91 +101,84 @@ def save_user_data_to_supabase():
         except Exception as e:
             st.error(f"Lỗi khi lưu lên Supabase: {e}")
 
-# ==========================================
+# HÀM XỬ LÝ DỊCH CHẠY DƯỚI NỀN (BACKGROUND TASK)
+def bg_translate_task(chap_key, raw_text, api_keys, model_choice, novel_data, trans_status):
+    try:
+        system_prompt = "Bạn là một dịch giả tiểu thuyết chuyên nghiệp. Dịch mượt mà, thuần Việt, không lậm văn phong máy móc. Giữ nguyên đoạn văn."
+        translated_text = call_llm(
+            system_prompt=system_prompt,
+            messages_or_prompt=f"NỘI DUNG RAW CẦN DỊCH:\n\n{raw_text}",
+            api_keys=api_keys,
+            model_choice=model_choice
+        )
+        
+        # Ghi thẳng kết quả vào memory
+        novel_data["raw_chapters"][chap_key]["translated"] = translated_text
+        
+        if "❌" in translated_text or "⚠️ LỖI" in translated_text:
+            trans_status[chap_key] = "❌ Lỗi AI"
+        else:
+            trans_status[chap_key] = "✅ Hoàn thành"
+    except Exception as e:
+        trans_status[chap_key] = f"❌ Lỗi: {str(e)}"
+
 # HÀM GỌI LLM (TÍCH HỢP SDK GOOGLE-GENAI MỚI NHẤT)
-# ==========================================
 def call_llm(system_prompt, messages_or_prompt, api_keys, model_choice):
     gemini_keys_str = api_keys.get("gemini", "")
     openai_keys_str = api_keys.get("openai", "")
 
-    # Tách key
     gemini_keys = [k.strip() for k in re.split(r'[\n,;\s]+', gemini_keys_str) if k.strip()]
     openai_keys = [k.strip() for k in re.split(r'[\n,;\s]+', openai_keys_str) if k.strip()]
 
-    # Chuyển đổi lịch sử chat (nếu có) thành chuỗi văn bản thuần để tương thích tốt nhất với hàm fallback
     if isinstance(messages_or_prompt, list):
         prompt_text = "\n".join([f"{m['role'].upper()}: {m['content']}" for m in messages_or_prompt])
     else:
         prompt_text = str(messages_or_prompt)
 
     if "Gemini" in model_choice:
-        if not gemini_keys:
-            return "⚠️ LỖI: Bạn chưa nhập Google Gemini API Key."
-        
+        if not gemini_keys: return "⚠️ LỖI: Bạn chưa nhập Google Gemini API Key."
         random.shuffle(gemini_keys)
-        
-        # Mảng model fallback thông minh của bạn
         models_to_try = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro']
         last_error = ""
         
         for key in gemini_keys:
-            try:
-                client = genai.Client(api_key=key)
-            except Exception as e:
-                last_error = f"Lỗi khởi tạo Client với Key: {e}"
-                continue
+            try: client = genai.Client(api_key=key)
+            except Exception as e: continue
 
             for model_name in models_to_try:
                 try:
                     config_kwargs = {}
-                    if system_prompt: 
-                        config_kwargs['system_instruction'] = system_prompt
-                    
+                    if system_prompt: config_kwargs['system_instruction'] = system_prompt
                     config = types.GenerateContentConfig(**config_kwargs) if config_kwargs else None
 
-                    res = client.models.generate_content(
-                        model=model_name, 
-                        contents=prompt_text, 
-                        config=config
-                    )
-                    
-                    if res and res.text: 
-                        return res.text
-                        
+                    res = client.models.generate_content(model=model_name, contents=prompt_text, config=config)
+                    if res and res.text: return res.text
                 except Exception as e:
-                    # Nếu model này báo lỗi (404, 429, v.v.), vòng lặp sẽ tự động nhảy sang model_name tiếp theo
                     last_error = f"Lỗi Model {model_name}: {e}"
                     continue 
                     
         return f"❌ LỖI TẤT CẢ API KEYS & MODELS. Chi tiết cuối: {last_error}"
 
     elif "OpenAI" in model_choice:
-        if not openai_keys:
-             return "⚠️ LỖI: Bạn chưa nhập OpenAI API Key."
+        if not openai_keys: return "⚠️ LỖI: Bạn chưa nhập OpenAI API Key."
         random.shuffle(openai_keys)
         for key in openai_keys:
             if key.startswith("sb_"): continue
             try:
                 headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
                 msgs = [{"role": "system", "content": system_prompt}]
-                if isinstance(messages_or_prompt, list):
-                    msgs.extend(messages_or_prompt)
-                else:
-                    msgs.append({"role": "user", "content": str(messages_or_prompt)})
+                if isinstance(messages_or_prompt, list): msgs.extend(messages_or_prompt)
+                else: msgs.append({"role": "user", "content": str(messages_or_prompt)})
                 res = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json={"model": "gpt-4o-mini", "messages": msgs, "temperature": 0.7}, timeout=60)
-                if res.status_code == 200:
-                    return res.json()["choices"][0]["message"]["content"]
-                elif res.status_code == 429:
-                    time.sleep(1.5)
-                    continue
-            except Exception:
-                continue
-        return "❌ LỖI RATE LIMIT: Tất cả các API Key OpenAI đều đã hết hạn mức."
+                if res.status_code == 200: return res.json()["choices"][0]["message"]["content"]
+                elif res.status_code == 429: time.sleep(1.5); continue
+            except Exception: continue
+        return "❌ LỖI RATE LIMIT: Tất cả API Key OpenAI đều hết."
     
     return "⚠️ Lỗi: Không thể xác định mô hình AI."
 
 # ==========================================
-# CÁC PHẦN GIAO DIỆN BÊN DƯỚI (GIỮ NGUYÊN)
+# GIAO DIỆN
 # ==========================================
 if not st.session_state.authenticated:
     st.title("☁️ Đăng nhập Novel Studio")
@@ -201,8 +198,7 @@ if not st.session_state.authenticated:
                     load_user_data_from_supabase(email)
                     st.success("Đăng nhập thành công!")
                     st.rerun()
-                except Exception as e:
-                    st.error(f"Lỗi đăng nhập: {e}")
+                except Exception as e: st.error(f"Lỗi đăng nhập: {e}")
             else:
                 st.session_state.authenticated = True
                 st.session_state.user_email = email
@@ -217,18 +213,15 @@ if not st.session_state.authenticated:
                 try:
                     res = supabase.auth.sign_up({"email": s_email, "password": s_password})
                     st.success("Tạo tài khoản thành công! Bạn có thể đăng nhập ngay.")
-                except Exception as e:
-                    st.error(f"Lỗi đăng ký: {e}")
-            else:
-                st.error("Chưa cấu hình Supabase URL/Key trong secrets.")
-
+                except Exception as e: st.error(f"Lỗi đăng ký: {e}")
+            else: st.error("Chưa cấu hình Supabase URL/Key.")
     st.stop()
 
 st.sidebar.title("📖 Novel Studio")
 st.sidebar.write(f"👤 **{st.session_state.user_email}**")
 
 with st.sidebar:
-    if st.button("💾 Lưu dữ liệu ngay", use_container_width=True):
+    if st.button("💾 Lưu dữ liệu Cloud ngay", use_container_width=True):
         save_user_data_to_supabase()
     if st.button("🚪 Đăng xuất", use_container_width=True):
         st.session_state.authenticated = False
@@ -255,24 +248,18 @@ if "raw_chapters" not in st.session_state.novel_data:
 
 if menu == "1. Cấu hình API Keys":
     st.header("🔑 Cấu hình API (Hỗ trợ chống Rate Limit)")
-
     col1, col2 = st.columns(2)
     with col1:
         gemini_keys_input = st.text_area(
             "Google Gemini API Keys (Mỗi key 1 dòng):", 
             value=st.session_state.novel_data["api_keys"].get("gemini", ""), 
-            height=180,
-            placeholder="AIzaSy...\nAIzaSy...\nAIzaSy..."
+            height=180
         )
-        parsed_gemini = [k.strip() for k in re.split(r'[\n,;\s]+', gemini_keys_input) if k.strip()]
-        st.caption(f"📊 Đã nhận diện: **{len(parsed_gemini)} Key Gemini**")
-
     with col2:
         openai_keys_input = st.text_area(
             "OpenAI API Keys (Mỗi key 1 dòng - Tùy chọn):", 
             value=st.session_state.novel_data["api_keys"].get("openai", ""), 
-            height=180,
-            placeholder="sk-...\nsk-..."
+            height=180
         )
         selected_model = st.selectbox("Mô hình AI ưu tiên xử lý:", ["Google Gemini (Miễn phí)", "OpenAI GPT-4o"])
 
@@ -298,8 +285,7 @@ elif menu == "2. Tải lên RAW Reference":
         st.subheader("📋 Danh sách Raw đã lưu:")
         for idx, doc in enumerate(st.session_state.novel_data["raw_docs"]):
             col_name, col_btn = st.columns([4, 1])
-            with col_name:
-                st.write(f"- **{doc['filename']}** ({len(doc['content'])} ký tự)")
+            with col_name: st.write(f"- **{doc['filename']}** ({len(doc['content'])} ký tự)")
             with col_btn:
                 if st.button("🗑️ Xóa file", key=f"del_raw_{idx}"):
                     st.session_state.novel_data["raw_docs"].pop(idx)
@@ -321,12 +307,9 @@ elif menu == "3. Tách & Dịch Raw":
         with col_split1:
             split_pattern = st.text_input("Từ khóa hoặc Regex bắt đầu mỗi chương (VD: 'Chương ', 'Chapter ', '第'):", value="Chương ")
         with col_split2:
-            st.write("")
-            st.write("")
+            st.write(""); st.write("")
             if st.button("✂️ Bắt đầu Tách", use_container_width=True):
-                try:
-                    pattern = f"(?={split_pattern})"
-                    chunks = re.split(pattern, doc_content)
+                try: chunks = re.split(f"(?={split_pattern})", doc_content)
                 except re.error:
                     chunks_raw = doc_content.split(split_pattern)
                     chunks = [c if i == 0 else (split_pattern + c) for i, c in enumerate(chunks_raw)]
@@ -337,7 +320,6 @@ elif menu == "3. Tách & Dịch Raw":
                     if len(chunk.strip()) < 10: continue
                     first_line = chunk.strip().split('\n')[0][:30]
                     chap_key = f"Raw_Chương_{chap_idx} ({first_line}...)"
-                    
                     new_chapters[chap_key] = {"raw": chunk.strip(), "translated": ""}
                     chap_idx += 1
                     
@@ -348,11 +330,59 @@ elif menu == "3. Tách & Dịch Raw":
         
         if st.session_state.novel_data.get("raw_chapters"):
             st.divider()
-            st.subheader("3. Dịch Thuật Từng Chương")
+            st.subheader("3. Dịch Thuật & Quản Lý (Không gián đoạn)")
             chap_keys = list(st.session_state.novel_data["raw_chapters"].keys())
-            selected_chap = st.selectbox("Chọn chương để xem và dịch:", chap_keys)
             
+            # --- PANEL DỊCH NGẦM HÀNG LOẠT ---
+            with st.expander("🚀 Bảng điều khiển Dịch Hàng Loạt (Chạy Ngầm)", expanded=True):
+                st.markdown("💡 *Chọn nhiều chương để AI tự động dịch ngầm. Trong lúc chờ, bạn có thể tự do bấm vào các chương khác hoặc chuyển menu mà không làm gián đoạn tiến trình.*")
+                
+                selected_batch = st.multiselect("Chọn các chương cần dịch:", chap_keys)
+                
+                col_btn_run, col_btn_ref = st.columns([1, 1])
+                with col_btn_run:
+                    if st.button("▶️ Bắt đầu dịch ngầm"):
+                        started = 0
+                        for c_key in selected_batch:
+                            if st.session_state.trans_status.get(c_key) == "🔄 Đang dịch...": continue
+                            
+                            st.session_state.trans_status[c_key] = "🔄 Đang dịch..."
+                            raw_txt = st.session_state.novel_data["raw_chapters"][c_key]["raw"]
+                            
+                            # Khởi tạo luồng ngầm cho từng chương
+                            t = threading.Thread(target=bg_translate_task, args=(
+                                c_key, raw_txt, 
+                                st.session_state.novel_data["api_keys"],
+                                st.session_state.novel_data["selected_model"],
+                                st.session_state.novel_data,
+                                st.session_state.trans_status
+                            ))
+                            t.start()
+                            started += 1
+                        
+                        if started > 0:
+                            st.toast(f"Đã đưa {started} chương vào tiến trình nền!")
+                            time.sleep(0.5)
+                            st.rerun()
+                
+                with col_btn_ref:
+                    if st.button("🔄 Cập nhật tiến độ"):
+                        st.rerun()
+
+                # Hiển thị các chương đang và đã dịch
+                active_tasks = {k: v for k, v in st.session_state.trans_status.items() if v == "🔄 Đang dịch..."}
+                if active_tasks:
+                    st.info(f"⏳ Đang xử lý dưới nền: {', '.join(active_tasks.keys())}")
+            
+            st.divider()
+            
+            # --- XEM CHI TIẾT VÀ CHỈNH SỬA TỪNG CHƯƠNG ---
+            selected_chap = st.selectbox("👉 Chọn chương để xem/chỉnh sửa:", chap_keys)
             chap_data = st.session_state.novel_data["raw_chapters"][selected_chap]
+            
+            # Trạng thái hiện tại của chương này
+            c_status = st.session_state.trans_status.get(selected_chap, "Chưa đưa vào luồng tự động")
+            st.caption(f"**Trạng thái hệ thống ngầm:** `{c_status}`")
             
             col_raw, col_trans = st.columns(2)
             with col_raw:
@@ -360,35 +390,31 @@ elif menu == "3. Tách & Dịch Raw":
                 raw_text = st.text_area("Nội dung Raw:", value=chap_data["raw"], height=500, key=f"raw_{selected_chap}")
             with col_trans:
                 st.markdown("**Bản Dịch (Tiếng Việt)**")
-                if st.button("🌐 AI Dịch Chương Này", use_container_width=True):
-                    trans_system_prompt = """Bạn là một dịch giả tiểu thuyết chuyên nghiệp. Dịch mượt mà, thuần Việt, không lậm văn phong máy móc. Giữ nguyên đoạn văn."""
-                    
-                    with st.spinner("AI đang tiến hành dịch thuật..."):
-                        translated_text = call_llm(
-                            system_prompt=trans_system_prompt,
-                            messages_or_prompt=f"NỘI DUNG RAW CẦN DỊCH:\n\n{raw_text}",
-                            api_keys=st.session_state.novel_data["api_keys"],
-                            model_choice=st.session_state.novel_data["selected_model"]
-                        )
+                if st.button("🌐 Ép dịch trực tiếp chương này ngay bây giờ", use_container_width=True):
+                    trans_system_prompt = "Bạn là một dịch giả tiểu thuyết chuyên nghiệp. Dịch mượt mà, thuần Việt, không lậm văn phong máy móc. Giữ nguyên đoạn văn."
+                    with st.spinner("Đang ép luồng dịch trực tiếp..."):
+                        translated_text = call_llm(trans_system_prompt, f"NỘI DUNG RAW:\n\n{raw_text}", st.session_state.novel_data["api_keys"], st.session_state.novel_data["selected_model"])
                         st.session_state.novel_data["raw_chapters"][selected_chap]["translated"] = translated_text
-                        st.session_state.novel_data["raw_chapters"][selected_chap]["raw"] = raw_text
+                        st.session_state.trans_status[selected_chap] = "✅ Dịch trực tiếp xong"
                         save_user_data_to_supabase()
                         st.rerun()
                 
                 trans_text = st.text_area("Nội dung Dịch:", value=chap_data["translated"], height=500, key=f"trans_{selected_chap}")
                 
-            col_save_btn, _ = st.columns([1, 3])
+            col_save_btn, col_note = st.columns([1, 3])
             with col_save_btn:
-                if st.button("💾 Lưu bản Dịch", use_container_width=True):
+                if st.button("💾 Lưu bản Dịch này", use_container_width=True):
                     st.session_state.novel_data["raw_chapters"][selected_chap]["raw"] = raw_text
                     st.session_state.novel_data["raw_chapters"][selected_chap]["translated"] = trans_text
                     save_user_data_to_supabase()
                     st.success("Đã lưu bản cập nhật!")
+            with col_note:
+                st.caption("Nhớ click **Lưu bản Dịch này** nếu bạn vừa sửa tay nhé. Nếu luồng ngầm đã báo dịch xong, hãy click **Cập nhật tiến độ** ở trên để tải text vào ô này.")
 
 elif menu == "4. AI Phỏng vấn (Bối cảnh & Nhân vật)":
+    # Các code tiếp theo giữ nguyên
     col_title, col_clear = st.columns([3, 1])
-    with col_title:
-        st.header("🤖 AI Phỏng vấn Trợ lý Biên tập")
+    with col_title: st.header("🤖 AI Phỏng vấn Trợ lý Biên tập")
     with col_clear:
         if st.button("🗑️ Xóa lịch sử chat"):
             st.session_state.novel_data["interview_history"] = []
@@ -396,21 +422,18 @@ elif menu == "4. AI Phỏng vấn (Bối cảnh & Nhân vật)":
             st.rerun()
 
     for msg in st.session_state.novel_data["interview_history"]:
-        with st.chat_message(msg["role"]):
-            st.write(msg["content"])
+        with st.chat_message(msg["role"]): st.write(msg["content"])
 
     if not st.session_state.novel_data["interview_history"]:
-        initial_prompt = "Chào bạn! Tôi là Trợ lý Biên tập viên AI. Bạn có thể chia sẻ ý tưởng ban đầu hoặc thể loại truyện mà bạn đang muốn viết là gì không?"
-        st.session_state.novel_data["interview_history"].append({"role": "assistant", "content": initial_prompt})
+        st.session_state.novel_data["interview_history"].append({"role": "assistant", "content": "Chào bạn! Tôi là Trợ lý Biên tập viên AI. Bạn có thể chia sẻ ý tưởng ban đầu hoặc thể loại truyện mà bạn đang muốn viết là gì không?"})
         save_user_data_to_supabase()
         st.rerun()
 
     user_input = st.chat_input("Nhập câu trả lời hoặc suy nghĩ của bạn...")
     if user_input:
         st.session_state.novel_data["interview_history"].append({"role": "user", "content": user_input})
-        editor_system_prompt = "Bạn là Trợ lý Biên tập viên. Hãy phỏng vấn tác giả để xây dựng Sườn khung câu chuyện."
         with st.spinner("AI Biên tập đang phân tích..."):
-            ai_response = call_llm(editor_system_prompt, st.session_state.novel_data["interview_history"], st.session_state.novel_data["api_keys"], st.session_state.novel_data["selected_model"])
+            ai_response = call_llm("Bạn là Trợ lý Biên tập viên. Hãy phỏng vấn tác giả để xây dựng Sườn khung câu chuyện.", st.session_state.novel_data["interview_history"], st.session_state.novel_data["api_keys"], st.session_state.novel_data["selected_model"])
         st.session_state.novel_data["interview_history"].append({"role": "assistant", "content": ai_response})
         save_user_data_to_supabase()
         st.rerun()
@@ -420,10 +443,9 @@ elif menu == "5. Lập Dàn ý & Bố cục":
     if st.button("🪄 AI Tổng Hợp Dàn Ý Tự Động"):
         interview_context = "\n".join([f"{m['role'].upper()}: {m['content']}" for m in st.session_state.novel_data["interview_history"]])
         raw_context = "".join([f"\n--- {doc['filename']} ---\n" + doc['content'][:2000] for doc in st.session_state.novel_data["raw_docs"]])
-        outline_system_prompt = f"Tạo DÀN Ý CHI TIẾT. {STYLE_PROMPT}"
         combined_prompt = f"=== PHỎNG VẤN ===\n{interview_context}\n\n=== RAW THAM KHẢO ===\n{raw_context}"
         with st.spinner("AI đang tạo Dàn ý..."):
-            generated_outline = call_llm(outline_system_prompt, combined_prompt, st.session_state.novel_data["api_keys"], st.session_state.novel_data["selected_model"])
+            generated_outline = call_llm(f"Tạo DÀN Ý CHI TIẾT. {STYLE_PROMPT}", combined_prompt, st.session_state.novel_data["api_keys"], st.session_state.novel_data["selected_model"])
             st.session_state.novel_data["outline"] = generated_outline
             save_user_data_to_supabase()
             st.rerun()
@@ -443,7 +465,6 @@ elif menu == "6. AI Viết nháp & Chỉnh sửa":
     with col_action1:
         extra_note = st.text_area("Yêu cầu riêng cho chương này:", key=f"prompt_{chapter_key}")
         if st.button("🚀 AI Viết Nháp Chương Này"):
-            interview_context = "\n".join([f"{m['role'].upper()}: {m['content']}" for m in st.session_state.novel_data["interview_history"]])
             combined_prompt = f"=== DÀN Ý ===\n{st.session_state.novel_data['outline']}\n\n=== YÊU CẦU CHO {chapter_key} ===\n{extra_note}"
             with st.spinner(f"AI đang viết nháp {chapter_key}..."):
                 generated_chapter = call_llm(f"Viết bản nháp cho {chapter_key}. {STYLE_PROMPT}", combined_prompt, st.session_state.novel_data["api_keys"], st.session_state.novel_data["selected_model"])
