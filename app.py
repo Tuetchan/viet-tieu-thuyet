@@ -479,7 +479,86 @@ elif menu == "3. Tách & Dịch Raw":
                 st.caption("Nhớ click **Lưu bản Dịch này** nếu bạn vừa sửa tay nhé. Nếu luồng ngầm đã báo dịch xong, hãy click **Cập nhật tiến độ** ở trên để tải text vào ô này.")
 
 elif menu == "4. AI Phỏng vấn (Bối cảnh & Nhân vật)":
-    # (Phần này giữ nguyên)
-    pass
-# (Các phần Lập dàn ý & Viết nháp bên dưới giữ nguyên như cũ, tôi đã cắt bớt hiển thị ở mô tả nhưng code đầy đủ vẫn chạy bình thường)
-# Do bạn chỉ yêu cầu tính năng Dịch nên các Menu 4, 5, 6, 7 vẫn y chang mã cũ của bạn!
+    col_title, col_clear = st.columns([3, 1])
+    with col_title:
+        st.header("🤖 AI Phỏng vấn Trợ lý Biên tập")
+    with col_clear:
+        if st.button("🗑️ Xóa lịch sử chat"):
+            st.session_state.novel_data["interview_history"] = []
+            save_user_data_to_supabase()
+            st.rerun()
+
+    for msg in st.session_state.novel_data["interview_history"]:
+        with st.chat_message(msg["role"]):
+            st.write(msg["content"])
+
+    if not st.session_state.novel_data["interview_history"]:
+        initial_prompt = "Chào bạn! Tôi là Trợ lý Biên tập viên AI. Bạn có thể chia sẻ ý tưởng ban đầu hoặc thể loại truyện mà bạn đang muốn viết là gì không?"
+        st.session_state.novel_data["interview_history"].append({"role": "assistant", "content": initial_prompt})
+        save_user_data_to_supabase()
+        st.rerun()
+
+    user_input = st.chat_input("Nhập câu trả lời hoặc suy nghĩ của bạn...")
+    if user_input:
+        st.session_state.novel_data["interview_history"].append({"role": "user", "content": user_input})
+        editor_system_prompt = "Bạn là Trợ lý Biên tập viên. Hãy phỏng vấn tác giả để xây dựng Sườn khung câu chuyện."
+        with st.spinner("AI Biên tập đang phân tích..."):
+            ai_response = call_llm(editor_system_prompt, st.session_state.novel_data["interview_history"], st.session_state.novel_data["api_keys"], st.session_state.novel_data["selected_model"])
+        st.session_state.novel_data["interview_history"].append({"role": "assistant", "content": ai_response})
+        save_user_data_to_supabase()
+        st.rerun()
+
+elif menu == "5. Lập Dàn ý & Bố cục":
+    st.header("📌 Dàn ý Chi tiết & Cốt truyện")
+    if st.button("🪄 AI Tổng Hợp Dàn Ý Tự Động"):
+        interview_context = "\n".join([f"{m['role'].upper()}: {m['content']}" for m in st.session_state.novel_data["interview_history"]])
+        raw_context = "".join([f"\n--- {doc['filename']} ---\n" + doc['content'][:2000] for doc in st.session_state.novel_data["raw_docs"]])
+        outline_system_prompt = f"Tạo DÀN Ý CHI TIẾT. {STYLE_PROMPT}"
+        combined_prompt = f"=== PHỎNG VẤN ===\n{interview_context}\n\n=== RAW THAM KHẢO ===\n{raw_context}"
+        with st.spinner("AI đang tạo Dàn ý..."):
+            generated_outline = call_llm(outline_system_prompt, combined_prompt, st.session_state.novel_data["api_keys"], st.session_state.novel_data["selected_model"])
+            st.session_state.novel_data["outline"] = generated_outline
+            save_user_data_to_supabase()
+            st.rerun()
+
+    outline_text = st.text_area("Bảng chỉnh sửa Dàn ý:", value=st.session_state.novel_data["outline"], height=400)
+    if outline_text != st.session_state.novel_data["outline"]:
+        st.session_state.novel_data["outline"] = outline_text
+    if st.button("💾 Lưu Dàn Ý"): save_user_data_to_supabase()
+
+elif menu == "6. AI Viết nháp & Chỉnh sửa":
+    st.header("✍️ AI Viết Nháp & Sửa Đổi Từng Chương")
+    chapter_num = st.number_input("Chọn số chương cần viết / sửa:", min_value=1, value=1, step=1)
+    chapter_key = f"Chương {chapter_num}"
+    current_draft = st.session_state.novel_data["chapters"].get(chapter_key, "")
+
+    col_action1, col_action2 = st.columns(2)
+    with col_action1:
+        extra_note = st.text_area("Yêu cầu riêng cho chương này:", key=f"prompt_{chapter_key}")
+        if st.button("🚀 AI Viết Nháp Chương Này"):
+            interview_context = "\n".join([f"{m['role'].upper()}: {m['content']}" for m in st.session_state.novel_data["interview_history"]])
+            combined_prompt = f"=== DÀN Ý ===\n{st.session_state.novel_data['outline']}\n\n=== YÊU CẦU CHO {chapter_key} ===\n{extra_note}"
+            with st.spinner(f"AI đang viết nháp {chapter_key}..."):
+                generated_chapter = call_llm(f"Viết bản nháp cho {chapter_key}. {STYLE_PROMPT}", combined_prompt, st.session_state.novel_data["api_keys"], st.session_state.novel_data["selected_model"])
+                st.session_state.novel_data["chapters"][chapter_key] = generated_chapter
+                save_user_data_to_supabase()
+                st.rerun()
+
+    with col_action2:
+        edited_content = st.text_area("Nội dung chương:", value=current_draft, height=350)
+        if st.button("💾 Lưu Chương Này"):
+            st.session_state.novel_data["chapters"][chapter_key] = edited_content
+            save_user_data_to_supabase()
+
+elif menu == "7. Hoàn thiện & Xuất bộ truyện":
+    st.header("🏆 Hoàn Thiện & Xuất Toàn Bộ Tiểu Thuyết")
+    full_novel_text = ""
+    if st.session_state.novel_data["chapters"]:
+        for ch_name in sorted(st.session_state.novel_data["chapters"].keys(), key=lambda x: int(x.split(" ")[1]) if len(x.split(" "))>1 and x.split(" ")[1].isdigit() else 0):
+            full_novel_text += f"\n\n=== {ch_name} ===\n\n" + st.session_state.novel_data["chapters"][ch_name]
+    elif st.session_state.novel_data["raw_chapters"]:
+        for ch_name, data in st.session_state.novel_data["raw_chapters"].items():
+            full_novel_text += f"\n\n=== {ch_name} ===\n\n" + (data["translated"] if data["translated"] else data["raw"])
+    
+    st.text_area("Xem trước bản thảo:", value=full_novel_text, height=400)
+    st.download_button(label="📥 Tải xuống Toàn bộ (.txt)", data=full_novel_text, file_name="Truyen.txt", mime="text/plain")
