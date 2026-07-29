@@ -39,7 +39,7 @@ if "trans_status" not in st.session_state: st.session_state.trans_status = {}
 if "novel_data" not in st.session_state:
     st.session_state.novel_data = {
         "api_keys": {"gemini": ""},
-        "selected_model": "Gemini 2.0 Flash (Nhanh, Tối ưu Quota nhất)",
+        "selected_model": "Gemini 3.5 Flash (Thông minh, Ổn định)",
         "raw_docs": [],
         "raw_chapters": {},
         "trans_prompt": "Bạn là một dịch giả tiểu thuyết chuyên nghiệp. Dịch mượt mà, thuần Việt, giữ nguyên đoạn văn và không tự ý thêm bớt tình tiết."
@@ -66,14 +66,16 @@ def load_user_data_from_supabase(email):
                 saved_data = res.data[0].get("workspace_data")
                 st.session_state.novel_data.update(saved_data)
                 st.toast("🎉 Đã tải dữ liệu trên mây!", icon="✅")
-        except Exception as e: st.error(f"Lỗi tải dữ liệu: {e}")
+        except Exception as e: 
+            st.error(f"Lỗi tải dữ liệu: {e}")
 
 def save_user_data_to_supabase():
     if supabase and st.session_state.authenticated and st.session_state.user_email:
         try:
             supabase.table("workspaces").upsert({"email": st.session_state.user_email, "workspace_data": st.session_state.novel_data}).execute()
             st.toast("💾 Đã lưu dữ liệu tự động!", icon="☁️")
-        except Exception as e: st.error(f"Lỗi lưu Supabase: {e}")
+        except Exception as e: 
+            st.error(f"Lỗi lưu Supabase (Có thể do mạng tạm thời, hãy thử lại sau): {e}")
 
 def scrape_text_from_url(url):
     try:
@@ -98,9 +100,12 @@ def call_llm(system_prompt, prompt_text, api_keys, model_choice) -> tuple[bool, 
     if not gemini_keys: 
         return False, "Chưa nhập Gemini API Key."
     
-    if "2.0" in str(model_choice): model_name = "gemini-2.0-flash"
-    elif "Pro" in str(model_choice): model_name = "gemini-1.5-pro"
-    else: model_name = "gemini-1.5-flash"
+    # 🌟 MAP TÊN MODEL THẾ HỆ MỚI NHẤT
+    if "3.5 Flash" in str(model_choice): model_name = "gemini-3.5-flash"
+    elif "3.1 Flash-Lite" in str(model_choice): model_name = "gemini-3.1-flash-lite"
+    elif "2.5 Pro" in str(model_choice): model_name = "gemini-2.5-pro"
+    elif "2.5 Flash" in str(model_choice): model_name = "gemini-2.5-flash"
+    else: model_name = "gemini-3.5-flash" # Dự phòng
 
     num_keys = len(gemini_keys)
     last_error = ""
@@ -225,9 +230,15 @@ if menu == "1. Cấu hình API":
     st.header("🔑 Cấu hình API")
     st.session_state.novel_data["api_keys"]["gemini"] = st.text_area("Gemini API Keys (Mỗi dòng 1 key, sẽ tự động xoay vòng):", value=st.session_state.novel_data["api_keys"].get("gemini", ""), height=150)
     
+    # 🌟 MENU LỰA CHỌN MODEL MỚI NHẤT
     st.session_state.novel_data["selected_model"] = st.selectbox(
         "Lựa chọn Model Dịch:", 
-        ["Gemini 2.0 Flash (Nhanh, Tối ưu Quota nhất)", "Gemini 1.5 Flash (Nhanh, ổn định)", "Gemini 1.5 Pro (Dịch chuẩn, tốn nhiều Quota - Delay 15s)"],
+        [
+            "Gemini 3.5 Flash (Thông minh, Ổn định)", 
+            "Gemini 3.1 Flash-Lite (Nhanh, Tiết kiệm chi phí)", 
+            "Gemini 2.5 Pro (Suy luận sâu sắc cho truyện khó)",
+            "Gemini 2.5 Flash (Tối ưu khối lượng lớn, Độ trễ thấp)"
+        ],
         index=0
     )
     st.session_state.novel_data["trans_prompt"] = st.text_area("Luật Dịch (Prompt):", value=st.session_state.novel_data.get("trans_prompt", ""), height=150)
@@ -328,12 +339,79 @@ elif menu == "3. Tách & Dịch Raw":
             
             st.download_button("📥 Tải tất cả chương (.ZIP)", data=zip_buffer.getvalue(), file_name="Truyen_Da_Dich.zip", mime="application/zip", use_container_width=True)
 
+        # --- TÍNH NĂNG TÌM KIẾM & THAY THẾ ---
+        with st.expander("🔍 Tìm kiếm & Thay thế hàng loạt (Giống Word)", expanded=False):
+            col_find, col_replace = st.columns(2)
+            with col_find: find_text = st.text_input("Từ / Cụm từ cần tìm (VD: Ta, Lão phu):", key="find_inp")
+            with col_replace: replace_text = st.text_input("Từ / Cụm từ thay thế (VD: Tôi, Ông):", key="replace_inp")
+
+            col_opt1, col_opt2 = st.columns(2)
+            with col_opt1: target_scope = st.radio("Phạm vi áp dụng:", ["Chỉ Bản Dịch", "Chỉ Bản Raw", "Cả Bản Dịch & Raw"], horizontal=True)
+            with col_opt2: use_regex = st.checkbox("Sử dụng Regex (Tìm nâng cao)")
+
+            if st.button("⚡ Thực Hiện Thay Thế", use_container_width=True):
+                if not find_text:
+                    st.warning("⚠️ Vui lòng nhập từ cần tìm!")
+                else:
+                    count_modified_chaps = 0
+                    total_replacements = 0
+
+                    for chap_key, data in st.session_state.novel_data["raw_chapters"].items():
+                        chap_modified = False
+
+                        if target_scope in ["Chỉ Bản Dịch", "Cả Bản Dịch & Raw"] and data.get("translated"):
+                            if use_regex:
+                                try:
+                                    new_text, num_subs = re.subn(find_text, replace_text, data["translated"])
+                                    if num_subs > 0:
+                                        data["translated"] = new_text
+                                        total_replacements += num_subs
+                                        chap_modified = True
+                                except re.error as e:
+                                    st.error(f"❌ Lỗi Regex: {e}")
+                                    break
+                            else:
+                                matches = data["translated"].count(find_text)
+                                if matches > 0:
+                                    data["translated"] = data["translated"].replace(find_text, replace_text)
+                                    total_replacements += matches
+                                    chap_modified = True
+
+                        if target_scope in ["Chỉ Bản Raw", "Cả Bản Dịch & Raw"] and data.get("raw"):
+                            if use_regex:
+                                try:
+                                    new_text, num_subs = re.subn(find_text, replace_text, data["raw"])
+                                    if num_subs > 0:
+                                        data["raw"] = new_text
+                                        total_replacements += num_subs
+                                        chap_modified = True
+                                except re.error as e:
+                                    st.error(f"❌ Lỗi Regex: {e}")
+                                    break
+                            else:
+                                matches = data["raw"].count(find_text)
+                                if matches > 0:
+                                    data["raw"] = data["raw"].replace(find_text, replace_text)
+                                    total_replacements += matches
+                                    chap_modified = True
+
+                        if chap_modified: count_modified_chaps += 1
+
+                    if total_replacements > 0:
+                        save_user_data_to_supabase()
+                        st.success(f"🎉 Đã thay thế thành công {total_replacements} vị trí trên {count_modified_chaps} chương!")
+                        time.sleep(1)
+                        st.rerun()
+                    else:
+                        st.info("Nội dung tìm kiếm không tồn tại.")
+
         with st.expander("🚀 Bảng điều khiển Dịch Hàng Loạt (Tuần tự an toàn)", expanded=True):
             selected_batch = st.multiselect("Chọn các chương cần dịch ngầm:", chap_keys)
             col_b1, col_b2 = st.columns([1, 1])
             with col_b1:
                 if st.button("▶️ Đưa vào hàng chờ dịch ngầm", use_container_width=True):
-                    model_choice = st.session_state.novel_data.get("selected_model", "2.0 Flash")
+                    model_choice = st.session_state.novel_data.get("selected_model", "3.5 Flash")
+                    # Các model Flash chạy khá mượt, Pro cần nghỉ lâu hơn
                     delay_time = 15 if "Pro" in model_choice else 5 
                     
                     count = 0
@@ -390,7 +468,7 @@ elif menu == "3. Tách & Dịch Raw":
                     process_single_chapter(
                         selected_chap, raw_text, 
                         st.session_state.novel_data["api_keys"], 
-                        st.session_state.novel_data.get("selected_model", "2.0 Flash"), 
+                        st.session_state.novel_data.get("selected_model", "3.5 Flash"), 
                         st.session_state.novel_data, st.session_state.trans_status
                     )
                     save_user_data_to_supabase()
