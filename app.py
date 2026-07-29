@@ -324,7 +324,90 @@ elif menu == "3. Tách & Dịch Raw":
                 st.session_state.novel_data["trans_prompt"] = custom_prompt_input
                 save_user_data_to_supabase()
                 st.success("Đã lưu yêu cầu dịch thuật!")
-        
+        if st.button("💾 Lưu Luật Dịch"):
+                st.session_state.novel_data["trans_prompt"] = custom_prompt_input
+                save_user_data_to_supabase()
+                st.success("Đã lưu yêu cầu dịch thuật!")
+
+            # =========================================================================
+            # 👇 DÁN ĐOẠN CODE TÌM & THAY THẾ VÀO ĐÂY (LÙI VÀO 12 KHOẢNG TRẮNG / 3 TAB)
+            # =========================================================================
+            with st.expander("🔍 Tìm kiếm & Thay thế hàng loạt (Giống Word)", expanded=False):
+                st.markdown("💡 *Thay thế tên nhân vật, từ ngữ, xưng hô... trên tất cả các chương cùng lúc.*")
+                
+                col_find, col_replace = st.columns(2)
+                with col_find:
+                    find_text = st.text_input("Từ / Cụm từ cần tìm (Ví dụ: Ta, Lục Sĩ...):", key="find_inp")
+                with col_replace:
+                    replace_text = st.text_input("Từ / Cụm từ thay thế (Ví dụ: Tôi, Lục Sơ...):", key="replace_inp")
+
+                col_opt1, col_opt2 = st.columns(2)
+                with col_opt1:
+                    target_scope = st.radio("Phạm vi áp dụng:", ["Chỉ Bản Dịch", "Chỉ Bản Raw", "Cả Bản Dịch & Raw"], horizontal=True)
+                with col_opt2:
+                    use_regex = st.checkbox("Sử dụng Regex (Tìm nâng cao)")
+
+                if st.button("⚡ Thực Hiện Thay Thế Hàng Loạt", use_container_width=True):
+                    if not find_text:
+                        st.warning("⚠️ Vui lòng nhập từ cần tìm!")
+                    else:
+                        count_modified_chaps = 0
+                        total_replacements = 0
+
+                        for chap_key, data in st.session_state.novel_data["raw_chapters"].items():
+                            chap_modified = False
+
+                            # 1. Thay thế trong Bản Dịch
+                            if target_scope in ["Chỉ Bản Dịch", "Cả Bản Dịch & Raw"] and data.get("translated"):
+                                if use_regex:
+                                    try:
+                                        new_text, num_subs = re.subn(find_text, replace_text, data["translated"])
+                                        if num_subs > 0:
+                                            data["translated"] = new_text
+                                            total_replacements += num_subs
+                                            chap_modified = True
+                                    except re.error as e:
+                                        st.error(f"❌ Lỗi Regex: {e}")
+                                        break
+                                else:
+                                    matches = data["translated"].count(find_text)
+                                    if matches > 0:
+                                        data["translated"] = data["translated"].replace(find_text, replace_text)
+                                        total_replacements += matches
+                                        chap_modified = True
+
+                            # 2. Thay thế trong Bản Raw
+                            if target_scope in ["Chỉ Bản Raw", "Cả Bản Dịch & Raw"] and data.get("raw"):
+                                if use_regex:
+                                    try:
+                                        new_text, num_subs = re.subn(find_text, replace_text, data["raw"])
+                                        if num_subs > 0:
+                                            data["raw"] = new_text
+                                            total_replacements += num_subs
+                                            chap_modified = True
+                                    except re.error as e:
+                                        st.error(f"❌ Lỗi Regex: {e}")
+                                        break
+                                else:
+                                    matches = data["raw"].count(find_text)
+                                    if matches > 0:
+                                        data["raw"] = data["raw"].replace(find_text, replace_text)
+                                        total_replacements += matches
+                                        chap_modified = True
+
+                            if chap_modified:
+                                count_modified_chaps += 1
+
+                        if total_replacements > 0:
+                            save_user_data_to_supabase()
+                            st.success(f"🎉 Đã thay thế thành công {total_replacements} vị trí trên {count_modified_chaps} chương!")
+                            time.sleep(1)
+                            st.rerun()
+                        else:
+                            st.info("Nội dung tìm kiếm không tồn tại trong các chương.")
+            # =========================================================================
+
+            chap_keys = list(st.session_state.novel_data["raw_chapters"].keys())
         chap_keys = list(st.session_state.novel_data["raw_chapters"].keys())
         
         with st.expander("🚀 Bảng điều khiển Dịch Hàng Loạt (Chạy Ngầm)", expanded=True):
