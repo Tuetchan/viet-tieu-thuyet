@@ -6,6 +6,8 @@ import re
 import random 
 import time
 import threading
+import io
+import zipfile
 from google import genai
 from google.genai import types
 
@@ -303,34 +305,76 @@ elif menu == "3. Tách & Dịch Raw":
         doc_content = next((d["content"] for d in st.session_state.novel_data["raw_docs"] if d["filename"] == selected_doc), "")
         
         st.subheader("2. Thiết lập Tách Chương")
-        col_split1, col_split2 = st.columns([3, 1])
-        with col_split1:
-            split_pattern = st.text_input("Từ khóa hoặc Regex bắt đầu mỗi chương (VD: 'Chương ', 'Chapter ', '第'):", value="Chương ")
-        with col_split2:
-            st.write(""); st.write("")
-            if st.button("✂️ Bắt đầu Tách", use_container_width=True):
-                try: chunks = re.split(f"(?={split_pattern})", doc_content)
+        
+        split_method = st.radio("Chọn phương pháp tách:", [
+            "🤖 Tự động thông minh (Nhận diện 第...章, Chương, Chap, Chapter)",
+            "✍️ Tùy chỉnh thủ công (Nhập từ khóa)"
+        ])
+        
+        if "Tự động" in split_method:
+            # Regex: Bỏ qua phân biệt hoa thường, áp dụng cho nhiều dòng.
+            # Nhận diện: "第[Bất kỳ chữ Hán/số]章" HOẶC "Chương..." HOẶC "Chap..." HOẶC "Chapter..."
+            split_pattern = r"(?im)(?=^(?:第.*?章|Chương\s+|Chap\s+|Chapter\s+))"
+            st.info("💡 Hệ thống sẽ tự động tìm kiếm các dòng chứa tiền tố chương (tiếng Việt, Anh, Trung) để tách.")
+        else:
+            split_pattern = st.text_input("Từ khóa hoặc Regex bắt đầu mỗi chương (VD: 'Chương ', 'Chapter '):", value="Chương ")
+
+        if st.button("✂️ Bắt đầu Tách", use_container_width=True):
+            if "Tự động" in split_method:
+                # Dùng re.split trực tiếp với lookahead
+                chunks = re.split(split_pattern, doc_content)
+                chunks = [c.strip() for c in chunks if len(c.strip()) > 10]
+            else:
+                try: 
+                    chunks = re.split(f"(?={split_pattern})", doc_content)
                 except re.error:
                     chunks_raw = doc_content.split(split_pattern)
                     chunks = [c if i == 0 else (split_pattern + c) for i, c in enumerate(chunks_raw)]
+                chunks = [c.strip() for c in chunks if len(c.strip()) > 10]
+            
+            new_chapters = {}
+            chap_idx = 1
+            for chunk in chunks:
+                # Lấy tên chương thông minh từ dòng đầu tiên
+                first_line = chunk.split('\n')[0][:50].strip()
+                if len(first_line) > 40: first_line = first_line[:40] + "..."
                 
-                new_chapters = {}
-                chap_idx = 1
-                for chunk in chunks:
-                    if len(chunk.strip()) < 10: continue
-                    first_line = chunk.strip().split('\n')[0][:30]
-                    chap_key = f"Raw_Chương_{chap_idx} ({first_line}...)"
-                    new_chapters[chap_key] = {"raw": chunk.strip(), "translated": ""}
-                    chap_idx += 1
-                    
-                st.session_state.novel_data["raw_chapters"] = new_chapters
-                save_user_data_to_supabase()
-                st.success(f"Đã tách thành {len(new_chapters)} chương!")
-                st.rerun()
+                chap_key = f"Chương_Lưu_{chap_idx} ({first_line})"
+                new_chapters[chap_key] = {"raw": chunk, "translated": ""}
+                chap_idx += 1
+                
+            st.session_state.novel_data["raw_chapters"] = new_chapters
+            save_user_data_to_supabase()
+            st.success(f"Đã tách thành {len(new_chapters)} chương!")
+            st.rerun()
         
         if st.session_state.novel_data.get("raw_chapters"):
             st.divider()
-            st.subheader("3. Dịch Thuật & Quản Lý (Không gián đoạn)")
+            
+            # --- TIÊU ĐỀ KÈM NÚT TẢI FILE ZIP ---
+            col_title, col_download = st.columns([2, 1])
+            with col_title:
+                st.subheader("3. Dịch Thuật & Quản Lý")
+            with col_download:
+                # Tạo bộ đệm RAM để chứa file ZIP
+                zip_buffer = io.BytesIO()
+                with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+                    for chap_key, data in st.session_state.novel_data["raw_chapters"].items():
+                        # Lấy bản dịch, nếu chưa dịch thì lấy bản raw
+                        content_to_save = data["translated"] if data["translated"] else data["raw"]
+                        # Làm sạch tên file để tránh lỗi hệ điều hành
+                        safe_filename = re.sub(r'[\\/*?:"<>|]', "", chap_key) + ".txt"
+                        zip_file.writestr(safe_filename, content_to_save)
+                
+                # Nút tải xuống
+                st.download_button(
+                    label="📥 Tải tất cả các chương (.ZIP)",
+                    data=zip_buffer.getvalue(),
+                    file_name="Cac_Chuong_Da_Tach.zip",
+                    mime="application/zip",
+                    use_container_width=True
+                )
+            
             chap_keys = list(st.session_state.novel_data["raw_chapters"].keys())
             
             # --- PANEL DỊCH NGẦM HÀNG LOẠT ---
@@ -349,7 +393,6 @@ elif menu == "3. Tách & Dịch Raw":
                             st.session_state.trans_status[c_key] = "🔄 Đang dịch..."
                             raw_txt = st.session_state.novel_data["raw_chapters"][c_key]["raw"]
                             
-                            # Khởi tạo luồng ngầm cho từng chương
                             t = threading.Thread(target=bg_translate_task, args=(
                                 c_key, raw_txt, 
                                 st.session_state.novel_data["api_keys"],
@@ -369,7 +412,6 @@ elif menu == "3. Tách & Dịch Raw":
                     if st.button("🔄 Cập nhật tiến độ"):
                         st.rerun()
 
-                # Hiển thị các chương đang và đã dịch
                 active_tasks = {k: v for k, v in st.session_state.trans_status.items() if v == "🔄 Đang dịch..."}
                 if active_tasks:
                     st.info(f"⏳ Đang xử lý dưới nền: {', '.join(active_tasks.keys())}")
@@ -380,7 +422,6 @@ elif menu == "3. Tách & Dịch Raw":
             selected_chap = st.selectbox("👉 Chọn chương để xem/chỉnh sửa:", chap_keys)
             chap_data = st.session_state.novel_data["raw_chapters"][selected_chap]
             
-            # Trạng thái hiện tại của chương này
             c_status = st.session_state.trans_status.get(selected_chap, "Chưa đưa vào luồng tự động")
             st.caption(f"**Trạng thái hệ thống ngầm:** `{c_status}`")
             
@@ -412,7 +453,6 @@ elif menu == "3. Tách & Dịch Raw":
                 st.caption("Nhớ click **Lưu bản Dịch này** nếu bạn vừa sửa tay nhé. Nếu luồng ngầm đã báo dịch xong, hãy click **Cập nhật tiến độ** ở trên để tải text vào ô này.")
 
 elif menu == "4. AI Phỏng vấn (Bối cảnh & Nhân vật)":
-    # Các code tiếp theo giữ nguyên
     col_title, col_clear = st.columns([3, 1])
     with col_title: st.header("🤖 AI Phỏng vấn Trợ lý Biên tập")
     with col_clear:
