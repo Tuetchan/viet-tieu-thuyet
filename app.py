@@ -40,10 +40,14 @@ if "novel_data" not in st.session_state:
     st.session_state.novel_data = {
         "api_keys": {"gemini": ""},
         "selected_model": "Gemini 3.5 Flash (Thông minh, Ổn định)",
+        "web_cookie": "", # Thêm biến lưu Cookie
         "raw_docs": [],
         "raw_chapters": {},
         "trans_prompt": "Bạn là một dịch giả tiểu thuyết chuyên nghiệp. Dịch mượt mà, thuần Việt, giữ nguyên đoạn văn và không tự ý thêm bớt tình tiết."
     }
+# Đảm bảo tương thích ngược với data cũ trên Supabase
+if "web_cookie" not in st.session_state.novel_data:
+    st.session_state.novel_data["web_cookie"] = ""
 
 if "translation_queue" not in st.session_state: st.session_state.translation_queue = queue.Queue()
 if "worker_running" not in st.session_state: st.session_state.worker_running = False
@@ -69,10 +73,9 @@ def save_user_data_to_supabase():
             st.toast("💾 Đã lưu dữ liệu tự động!", icon="☁️")
         except Exception as e: st.error(f"Lỗi lưu Supabase: {e}")
 
-def scrape_text_from_url(url):
-    """Hàm cào web được nâng cấp để vượt Anti-bot của web Trung Quốc"""
+def scrape_text_from_url(url, custom_cookie=""):
+    """Hàm cào web có hỗ trợ Cookie để đăng nhập Zhihu"""
     try:
-        # Giả mạo Header trình duyệt cực mạnh để vượt tường lửa (Zhihu, dmxs...)
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
@@ -85,40 +88,39 @@ def scrape_text_from_url(url):
             'Sec-Fetch-User': '?1'
         }
         
+        # Thêm Cookie vào Header nếu có
+        if custom_cookie.strip():
+            headers['Cookie'] = custom_cookie.strip()
+            
         res = requests.get(url, headers=headers, timeout=15)
-        # Chuyển encoding tự động (Web Trung hay dùng GBK thay vì UTF-8)
         res.encoding = res.apparent_encoding
         res.raise_for_status()
         
         soup = BeautifulSoup(res.text, 'html.parser')
         
-        # 1. Tìm trong các thẻ div thường dùng chứa nội dung truyện
         content_div = soup.find('div', id=re.compile(r'(content|chaptercontent|BookText|ReadText)', re.IGNORECASE))
         if not content_div:
             content_div = soup.find('div', class_=re.compile(r'(content|chapter|read-content)', re.IGNORECASE))
 
         if content_div:
-            # Xóa các tag quảng cáo / script
             for script in content_div(["script", "style", "a"]): script.decompose()
             text = content_div.get_text(separator="\n", strip=True)
         else:
-            # 2. Rớt đài thì lấy tất cả thẻ <p>
             paragraphs = soup.find_all('p')
             if paragraphs and len(paragraphs) > 3:
                 text = "\n".join([p.get_text().strip() for p in paragraphs if p.get_text().strip()])
             else:
                 text = soup.get_text(separator="\n", strip=True)
                 
-        # Dọn dẹp khoảng trắng thừa
         text = re.sub(r'\n{3,}', '\n\n', text)
         
         if len(text) < 100:
-            return "⚠️ Không tìm thấy nội dung truyện. Có thể trang web yêu cầu Đăng Nhập / Trả Phí (như Zhihu Vip) hoặc cấu trúc web quá phức tạp."
+            return "⚠️ Không tìm thấy nội dung truyện. Có thể Cookie không đúng hoặc cấu trúc web lạ."
         return text
 
     except requests.exceptions.HTTPError as e:
         if e.response.status_code == 403:
-            return f"❌ Lỗi 403 Forbidden: Trang web ({url}) đã chặn truy cập. (Lý do: Cloudflare chống bot, web chặn IP nước ngoài, hoặc link cần tài khoản Vip)."
+            return f"❌ Lỗi 403 Forbidden: Web đã chặn. Vui lòng lấy lại Cookie mới và thử lại."
         return f"❌ Lỗi cào web: {str(e)}"
     except Exception as e:
         return f"❌ Lỗi hệ thống khi cào: {str(e)}"
@@ -248,11 +250,15 @@ if menu == "1. Cấu hình API":
 
 elif menu == "2. Lấy Raw (Từ Web)":
     st.header("🕷️ Cào Dữ Liệu Truyện Từ Web Trung Quốc")
-    st.markdown("""
-    *Hỗ trợ tốt các trang đọc truyện miễn phí. Lưu ý:*
-    *   *Các truyện **Zhihu trả phí** (như `paid_column/...`) bắt buộc phải có tài khoản VIP để xem, tool có thể sẽ bị báo lỗi 403.*
-    """)
     
+    st.info("💡 **Nếu web báo lỗi 403 (Zhihu):** Bạn cần dán Cookie của tài khoản Zhihu vào ô bên dưới để server có thể giả lập đăng nhập.")
+    
+    st.session_state.novel_data["web_cookie"] = st.text_input(
+        "🍪 Nhập Cookie (Bắt buộc với Zhihu):", 
+        value=st.session_state.novel_data.get("web_cookie", ""),
+        help="Mở F12 trên web -> Chọn tab Network -> F5 tải lại trang -> Bấm vào link đầu tiên -> Kéo xuống phần Request Headers -> Copy chuỗi cạnh chữ 'cookie:'"
+    )
+
     col_url, col_name = st.columns([3, 1])
     with col_url: url_input = st.text_input("Nhập link (URL) chương truyện:")
     with col_name: chap_name_web = st.text_input("Tên chương lưu lại:", value="Chương Web 1")
@@ -260,7 +266,7 @@ elif menu == "2. Lấy Raw (Từ Web)":
     if st.button("🚀 Cào Raw & Đưa vào danh sách Dịch", use_container_width=True):
         if url_input:
             with st.spinner("Đang kết nối tới web để lấy dữ liệu..."):
-                scraped_text = scrape_text_from_url(url_input.strip()) 
+                scraped_text = scrape_text_from_url(url_input.strip(), st.session_state.novel_data.get("web_cookie", "")) 
                 if "❌" not in scraped_text and "⚠️" not in scraped_text:
                     if "raw_chapters" not in st.session_state.novel_data: st.session_state.novel_data["raw_chapters"] = {}
                     st.session_state.novel_data["raw_chapters"][chap_name_web] = {"raw": scraped_text, "translated": ""}
