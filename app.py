@@ -6,6 +6,7 @@ import threading
 import queue
 import io
 import zipfile
+import json
 from bs4 import BeautifulSoup
 from supabase import create_client, Client
 from google import genai
@@ -74,43 +75,116 @@ def save_user_data_to_supabase():
         except Exception as e: 
             st.error(f"Lỗi lưu Supabase: {e}")
 
+# --- CÁC HÀM XỬ LÝ ZHIHU ---
+def parse_zhihu_content(soup):
+    texts = []
+    script_tag = soup.find('script', id='js-initialData')
+    if script_tag and script_tag.string:
+        try:
+            data = json.loads(script_tag.string)
+            initial_state = data.get('initialState', {})
+            entities = initial_state.get('entities', {})
+            articles = entities.get('articles', {})
+            for item_id, item_data in articles.items():
+                if 'content' in item_data:
+                    c_soup = BeautifulSoup(item_data['content'], 'html.parser')
+                    texts.append(c_soup.get_text(separator="\n", strip=True))
+                    
+            if not texts:
+                str_data = json.dumps(initial_state, ensure_ascii=False)
+                found_contents = re.findall(r'"content"\s*:\s*"([^"]+)"', str_data)
+                for fc in found_contents:
+                    if len(fc) > 200:
+                        c_soup = BeautifulSoup(fc.encode().decode('unicode-escape', errors='ignore'), 'html.parser')
+                        texts.append(c_soup.get_text(separator="\n", strip=True))
+        except Exception: pass
+
+    if not texts:
+        content_nodes = soup.find_all(['div', 'section', 'article'], class_=re.compile(r'(Post-RichText|BodyModule|css-1y8291e|PaidColumn)', re.IGNORECASE))
+        for node in content_nodes:
+            txt = node.get_text(separator="\n", strip=True)
+            if len(txt) > 100: texts.append(txt)
+
+    if not texts:
+        ps = soup.find_all('p')
+        if len(ps) > 5: texts = [p.get_text().strip() for p in ps if p.get_text().strip()]
+
+    return "\n\n".join(texts) if texts else ""
+
+def scrape_zhihu_url(url, custom_cookie=""):
+    try:
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.7',
+        }
+        cookie_val = custom_cookie.strip()
+        if cookie_val:
+            if cookie_val.startswith('[') and cookie_val.endswith(']'):
+                try:
+                    cookie_list = json.loads(cookie_val)
+                    cookie_val = "; ".join([f"{c['name']}={c['value']}" for c in cookie_list if 'name' in c and 'value' in c])
+                except Exception: pass
+            headers['Cookie'] = cookie_val
+
+        res = requests.get(url, headers=headers, timeout=15)
+        res.encoding = res.apparent_encoding
+        res.raise_for_status() # Sẽ ném ra lỗi 403 nếu không có cookie xịn
+        
+        soup = BeautifulSoup(res.text, 'html.parser')
+        text = parse_zhihu_content(soup)
+        return text if len(text) >= 50 else None, None
+    except Exception as e: 
+        return None, str(e)
+
+def auto_split_zhihu_sections(full_text):
+    pattern = r"(?m)(^(?:[0-9]{1,3}|第.*?章|Chương\s+\d+)\s*$)"
+    parts = re.split(pattern, full_text)
+    res = {}
+    if len(parts) <= 1:
+        res["Toàn bộ truyện"] = full_text
+        return res
+
+    current_title = "Phần mở đầu"
+    for i in range(len(parts)):
+        segment = parts[i].strip()
+        if not segment: continue
+        if re.match(r'^(?:[0-9]{1,3}|第.*?章|Chương\s+\d+)$', segment):
+            current_title = f"Phần {segment}" if segment.isdigit() else segment
+        else:
+            if current_title in res: res[current_title] += "\n\n" + segment
+            else: res[current_title] = segment
+    return res
+
+# --- HÀM CÀO WEB CHUNG ---
 def scrape_web_chapter(url):
-    """Cào nội dung và cố gắng lấy tiêu đề từ link truyện"""
+    """Cào web chung (Không phải Zhihu)"""
     try:
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
         res = requests.get(url.strip(), headers=headers, timeout=10)
         res.raise_for_status()
         soup = BeautifulSoup(res.text, 'html.parser')
         
-        # Thử lấy tiêu đề (Title hoặc H1)
         title_tag = soup.find('h1')
         title = title_tag.get_text().strip() if title_tag else ""
-        if not title and soup.title:
-            title = soup.title.string.strip()
-        if not title:
-            title = "Chương Web Mới"
+        if not title and soup.title: title = soup.title.string.strip()
+        if not title: title = "Chương Web Mới"
 
-        # Thử tìm các div chứa nội dung truyện phổ biến
         content_div = soup.select_one('#chapter-c, .chapter-content, #chapter-content, .box-chap, .story-detail-content')
-        
         if content_div:
             paragraphs = content_div.find_all('p')
-            if paragraphs:
-                text = "\n".join([p.get_text().strip() for p in paragraphs if p.get_text().strip()])
-            else:
-                text = content_div.get_text(separator="\n", strip=True)
+            if paragraphs: text = "\n".join([p.get_text().strip() for p in paragraphs if p.get_text().strip()])
+            else: text = content_div.get_text(separator="\n", strip=True)
         else:
-            # Fallback lấy toàn bộ thẻ p
             paragraphs = soup.find_all('p')
-            if paragraphs and len(paragraphs) > 5:
-                text = "\n".join([p.get_text().strip() for p in paragraphs if p.get_text().strip()])
-            else:
-                text = soup.get_text(separator="\n", strip=True)
+            if paragraphs and len(paragraphs) > 5: text = "\n".join([p.get_text().strip() for p in paragraphs if p.get_text().strip()])
+            else: text = soup.get_text(separator="\n", strip=True)
                 
         return title, text if len(text) > 50 else "Không tìm thấy nội dung truyện ở link này."
     except Exception as e:
         return "Lỗi", f"❌ Lỗi cào web: {str(e)}"
 
+# --- HÀM GỌI LLM & WORKER ---
 def call_llm(system_prompt, prompt_text, api_keys, model_choice) -> tuple[bool, str]:
     gemini_keys = [k.strip() for k in re.split(r'[\n,;\s]+', api_keys.get("gemini", "")) if k.strip()]
     if not gemini_keys: 
@@ -160,7 +234,6 @@ def call_llm(system_prompt, prompt_text, api_keys, model_choice) -> tuple[bool, 
 def process_single_chapter(chap_key, raw_text, api_keys, model_choice, novel_data_dict, trans_status_dict):
     max_retries = 3
     retry_count = 0
-    
     base_prompt = novel_data_dict.get("trans_prompt", "Bạn là dịch giả.")
     system_prompt = base_prompt + "\n\n[LỆNH BẮT BUỘC]: Trả về trực tiếp bản dịch. Không giải thích."
     
@@ -257,7 +330,12 @@ elif menu == "2. Nguồn Truyện (Cào/Tải Raw)":
     
     with tab1:
         st.subheader("Cào nhiều chương cùng lúc")
-        urls_input = st.text_area("Nhập danh sách Link (Mỗi dòng 1 URL):", placeholder="https://truyen.../chuong-1\nhttps://truyen.../chuong-2")
+        
+        # Ô NHẬP COOKIE ZHIHU (Dành riêng cho Zhihu để tránh 403)
+        st.info("💡 Nếu cào link Zhihu, hãy nhập Cookie vào ô bên dưới để tránh lỗi 403 Forbidden.")
+        custom_cookie = st.text_input("Cookie Zhihu (Tùy chọn):", placeholder='VD: z_c0="..."; q_c1="..."')
+        
+        urls_input = st.text_area("Nhập danh sách Link (Mỗi dòng 1 URL):", placeholder="https://truyen.../chuong-1\nhttps://www.zhihu.com/question/...")
         
         if st.button("🕷️ Bắt đầu cào & Thêm vào hàng đợi dịch", use_container_width=True):
             if urls_input.strip():
@@ -267,18 +345,36 @@ elif menu == "2. Nguồn Truyện (Cào/Tải Raw)":
                 success_count = 0
                 with st.spinner(f"Đang cào {len(urls)} link..."):
                     for i, url in enumerate(urls):
-                        title, scraped_text = scrape_web_chapter(url)
-                        if "❌" not in scraped_text:
-                            # Đảm bảo tên không bị trùng
-                            chap_key = f"{title}" if title not in st.session_state.novel_data["raw_chapters"] else f"{title} ({i+1})"
-                            st.session_state.novel_data["raw_chapters"][chap_key] = {"raw": scraped_text, "translated": ""}
-                            success_count += 1
+                        
+                        # LOGIC RIÊNG CHO ZHIHU
+                        if "zhihu.com" in url:
+                            raw_text, err_msg = scrape_zhihu_url(url, custom_cookie)
+                            
+                            if err_msg: # Nếu bị 403 hoặc lỗi khác
+                                st.error(f"❌ Lỗi cào web Zhihu tại link {url}: {err_msg}")
+                            elif raw_text:
+                                # Tự động chia chương cho Zhihu
+                                split_sections = auto_split_zhihu_sections(raw_text)
+                                for sec_title, sec_content in split_sections.items():
+                                    chap_key = f"Zhihu - {sec_title} ({i+1})"
+                                    st.session_state.novel_data["raw_chapters"][chap_key] = {"raw": sec_content, "translated": ""}
+                                    success_count += 1
+                            else:
+                                st.warning(f"⚠️ Link Zhihu {url} không tìm thấy nội dung (hoặc nội dung quá ngắn).")
+                                
+                        # LOGIC CHO TRANG WEB THƯỜNG
                         else:
-                            st.error(f"Lỗi ở link {url}: {scraped_text}")
+                            title, scraped_text = scrape_web_chapter(url)
+                            if "❌" not in scraped_text:
+                                chap_key = f"{title}" if title not in st.session_state.novel_data["raw_chapters"] else f"{title} ({i+1})"
+                                st.session_state.novel_data["raw_chapters"][chap_key] = {"raw": scraped_text, "translated": ""}
+                                success_count += 1
+                            else:
+                                st.error(f"Lỗi ở link {url}: {scraped_text}")
                             
                 if success_count > 0:
                     save_user_data_to_supabase()
-                    st.success(f"Đã cào thành công {success_count} chương và đưa thẳng vào phần Dịch & Quản Lý!")
+                    st.success(f"🎉 Đã cào thành công {success_count} phần truyện và đưa vào Quản Lý!")
                     time.sleep(1.5)
             else: 
                 st.warning("Vui lòng nhập ít nhất 1 link.")
