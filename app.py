@@ -6,6 +6,7 @@ import threading
 import queue
 import io
 import zipfile
+import json # Thêm thư viện xử lý JSON cho Cookie
 from bs4 import BeautifulSoup
 from supabase import create_client, Client
 from google import genai
@@ -40,12 +41,12 @@ if "novel_data" not in st.session_state:
     st.session_state.novel_data = {
         "api_keys": {"gemini": ""},
         "selected_model": "Gemini 3.5 Flash (Thông minh, Ổn định)",
-        "web_cookie": "", # Thêm biến lưu Cookie
+        "web_cookie": "", 
         "raw_docs": [],
         "raw_chapters": {},
         "trans_prompt": "Bạn là một dịch giả tiểu thuyết chuyên nghiệp. Dịch mượt mà, thuần Việt, giữ nguyên đoạn văn và không tự ý thêm bớt tình tiết."
     }
-# Đảm bảo tương thích ngược với data cũ trên Supabase
+# Đảm bảo tương thích ngược
 if "web_cookie" not in st.session_state.novel_data:
     st.session_state.novel_data["web_cookie"] = ""
 
@@ -74,7 +75,7 @@ def save_user_data_to_supabase():
         except Exception as e: st.error(f"Lỗi lưu Supabase: {e}")
 
 def scrape_text_from_url(url, custom_cookie=""):
-    """Hàm cào web có hỗ trợ Cookie để đăng nhập Zhihu"""
+    """Hàm cào web thông minh, tự nhận diện Cookie JSON hoặc String"""
     try:
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
@@ -88,9 +89,18 @@ def scrape_text_from_url(url, custom_cookie=""):
             'Sec-Fetch-User': '?1'
         }
         
-        # Thêm Cookie vào Header nếu có
-        if custom_cookie.strip():
-            headers['Cookie'] = custom_cookie.strip()
+        # Xử lý Cookie
+        cookie_val = custom_cookie.strip()
+        if cookie_val:
+            # Nếu người dùng dán định dạng JSON (từ extension)
+            if cookie_val.startswith('[') and cookie_val.endswith(']'):
+                try:
+                    cookie_list = json.loads(cookie_val)
+                    # Biến đổi JSON thành chuỗi name=value;
+                    cookie_val = "; ".join([f"{c['name']}={c['value']}" for c in cookie_list if 'name' in c and 'value' in c])
+                except Exception as e:
+                    pass # Rớt xuống dùng nguyên bản nếu lỗi parse
+            headers['Cookie'] = cookie_val
             
         res = requests.get(url, headers=headers, timeout=15)
         res.encoding = res.apparent_encoding
@@ -115,7 +125,7 @@ def scrape_text_from_url(url, custom_cookie=""):
         text = re.sub(r'\n{3,}', '\n\n', text)
         
         if len(text) < 100:
-            return "⚠️ Không tìm thấy nội dung truyện. Có thể Cookie không đúng hoặc cấu trúc web lạ."
+            return "⚠️ Không tìm thấy nội dung truyện. Có thể Cookie đã hết hạn hoặc web cấu trúc lạ."
         return text
 
     except requests.exceptions.HTTPError as e:
@@ -253,10 +263,11 @@ elif menu == "2. Lấy Raw (Từ Web)":
     
     st.info("💡 **Nếu web báo lỗi 403 (Zhihu):** Bạn cần dán Cookie của tài khoản Zhihu vào ô bên dưới để server có thể giả lập đăng nhập.")
     
-    st.session_state.novel_data["web_cookie"] = st.text_input(
-        "🍪 Nhập Cookie (Bắt buộc với Zhihu):", 
+    st.session_state.novel_data["web_cookie"] = st.text_area(
+        "🍪 Nhập Cookie (Hỗ trợ cả chuỗi JSON từ tiện ích):", 
         value=st.session_state.novel_data.get("web_cookie", ""),
-        help="Mở F12 trên web -> Chọn tab Network -> F5 tải lại trang -> Bấm vào link đầu tiên -> Kéo xuống phần Request Headers -> Copy chuỗi cạnh chữ 'cookie:'"
+        height=100,
+        help="Dán trực tiếp mảng JSON (nếu dùng EditThisCookie) hoặc chuỗi Raw Cookie (nếu lấy từ F12 Network)."
     )
 
     col_url, col_name = st.columns([3, 1])
