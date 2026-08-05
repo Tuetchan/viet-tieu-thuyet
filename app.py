@@ -537,5 +537,36 @@ elif menu == "3. Dịch & Quản Lý":
                 st.text_area("trans_text", chapters[selected_key].get("translated", ""), height=500, label_visibility="collapsed")
                         
         st.write("---")
-        if st.button("⬇️ Xuất EPUB", use_container_width=True):
-            st.info("Chức năng xuất EPUB chuẩn bị ra mắt, vui lòng copy text tạm nhé!")
+        
+        # ==========================================
+        # TÍNH NĂNG XUẤT FILE TỔNG HỢP (.TXT & EPUB)
+        # ==========================================
+        st.subheader("💾 Xuất File")
+        col_export1, col_export2 = st.columns(2)
+        
+        # Xây dựng nội dung file TXT
+        export_text = ""
+        for k in chap_keys:
+            trans_text = chapters[k].get("translated", "").strip()
+            # Ghi chú nếu chương chưa dịch hoặc bị lỗi
+            if not trans_text or "❌" in trans_text or "⚠️" in trans_text:
+                trans_text = "(Chương này chưa được dịch hoặc bị lỗi)"
+            
+            # Gộp tên chương và nội dung, ngăn cách bằng vạch kẻ
+            export_text += f"{k}\n\n{trans_text}\n\n{'-'*50}\n\n"
+            
+        with col_export1:
+            if export_text:
+                st.download_button(
+                    label="⬇️ Tải toàn bộ bản dịch (.txt)",
+                    data=export_text,
+                    file_name=f"Truyen_Dich_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
+                    mime="text/plain",
+                    use_container_width=True
+                )
+            else:
+                st.button("⬇️ Tải toàn bộ bản dịch (.txt)", disabled=True, use_container_width=True)
+
+        with col_export2:
+            if st.button("⬇️ Xuất EPUB", use_container_width=True):
+                st.info("Chức năng xuất EPUB đang được phát triển, tạm thời hãy tải file TXT bên cạnh nhé!")
