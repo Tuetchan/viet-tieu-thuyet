@@ -10,7 +10,7 @@ import json
 import concurrent.futures
 from datetime import datetime
 from bs4 import BeautifulSoup
-from supabase import create_client, Client
+from supabase import create_client, Client, ClientOptions
 from google import genai
 from google.genai import types
 
@@ -29,7 +29,10 @@ except Exception: pass
 @st.cache_resource
 def init_supabase():
     if SUPABASE_URL and SUPABASE_KEY:
-        try: return create_client(SUPABASE_URL, SUPABASE_KEY)
+        try: 
+            # Tăng thời gian chờ (Timeout) kết nối Supabase lên 60s để tránh lỗi "Read operation timed out"
+            opts = ClientOptions(postgrest_client_timeout=60, storage_client_timeout=60)
+            return create_client(SUPABASE_URL, SUPABASE_KEY, options=opts)
         except Exception: return None
     return None
 
@@ -169,9 +172,9 @@ def call_llm(system_prompt, prompt_text, api_keys, model_choice) -> tuple[bool, 
         return False, "Chưa nhập Gemini API Key."
     
     if "3.5 Flash" in str(model_choice): model_name = "gemini-3.5-flash"
-    elif "3.1 Flash" in str(model_choice): model_name = "gemini-3.1-flash"
+    elif "3.1 Flash-Lite" in str(model_choice): model_name = "gemini-3.1-flash-lite"
     elif "2.5 Pro" in str(model_choice): model_name = "gemini-2.5-pro"
-    elif "3.5 Flash" in str(model_choice): model_name = "gemini-3.6-flash"
+    elif "2.5 Flash" in str(model_choice): model_name = "gemini-2.5-flash"
     else: model_name = "gemini-3.5-flash" 
 
     num_keys = len(gemini_keys)
@@ -236,7 +239,7 @@ def process_single_chapter(chap_key, raw_text, api_keys, model_choice, novel_dat
 
 def batch_worker(chap_keys_list, api_keys, model_choice, novel_data_dict, trans_status_dict, delay_time, user_email):
     st.session_state.worker_running = True
-    batch_size = 3  # Số chương dịch đồng thời trong 1 luồng
+    batch_size = 3  # Dịch 3 chương cùng lúc
     
     keys_to_translate = [
         k for k in chap_keys_list 
@@ -263,7 +266,7 @@ def batch_worker(chap_keys_list, api_keys, model_choice, novel_data_dict, trans_
             ]
             concurrent.futures.wait(futures)
             
-        # Tự động lưu Supabase theo từng cụm 3 chương để tránh Timeout 57014
+        # Tự động lưu Supabase sau mỗi 3 chương để tránh lỗi Statement Timeout 57014
         if supabase and user_email:
             try:
                 supabase.table("workspaces").upsert({
@@ -389,13 +392,20 @@ elif menu == "2. Nguồn Truyện (Cào/Tải Raw)":
                 
     with tab2:
         st.subheader("📂 Tải lên hoặc Quản Lý File Raw (.txt)")
-        uploaded_file = st.file_uploader("Tải lên file tiểu thuyết tiếng Trung (.txt)", type=["txt"])
+        uploaded_file = st.file_uploader("Tải lên file tiểu thuyết tiếng Trung (.txt)", type=["txt"], key="txt_uploader")
+        
+        # Đoạn xử lý tải file đã sửa chống lặp vô tận (Infinite Loop)
         if uploaded_file is not None:
-            content = uploaded_file.read().decode('utf-8', errors='ignore')
-            st.session_state.novel_data["raw_docs"].append({"filename": uploaded_file.name, "content": content})
-            save_user_data_to_supabase()
-            st.success(f"✅ Tải lên {uploaded_file.name} thành công!")
-            time.sleep(1); st.rerun()
+            existing_filenames = [d["filename"] for d in st.session_state.novel_data.get("raw_docs", [])]
+            
+            # Chỉ lưu nếu file NÀY CHƯA ĐƯỢC LƯU
+            if uploaded_file.name not in existing_filenames:
+                content = uploaded_file.read().decode('utf-8', errors='ignore')
+                st.session_state.novel_data["raw_docs"].append({"filename": uploaded_file.name, "content": content})
+                save_user_data_to_supabase()
+                st.success(f"✅ Tải lên {uploaded_file.name} thành công!")
+                time.sleep(1)
+                st.rerun()
             
         if st.session_state.novel_data.get("raw_docs"):
             st.write("---")
