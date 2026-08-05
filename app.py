@@ -7,6 +7,7 @@ import queue
 import io
 import zipfile
 import json
+import concurrent.futures
 from datetime import datetime
 from bs4 import BeautifulSoup
 from supabase import create_client, Client
@@ -47,12 +48,8 @@ if "novel_data" not in st.session_state:
         "trans_prompt": "Bạn là một dịch giả tiểu thuyết chuyên nghiệp. Dịch mượt mà, thuần Việt, giữ nguyên đoạn văn và không tự ý thêm bớt tình tiết."
     }
 
-if "translation_queue" not in st.session_state:
-    st.session_state.translation_queue = queue.Queue()
 if "worker_running" not in st.session_state:
     st.session_state.worker_running = False
-if "key_rotation_index" not in st.session_state:
-    st.session_state.key_rotation_index = 0
 
 # ==========================================
 # 2. HÀM HỖ TRỢ & CALL API
@@ -165,24 +162,23 @@ def scrape_web_chapter(url):
     except Exception as e:
         return "Lỗi", f"❌ Lỗi cào web: {str(e)}"
 
-# --- HÀM GỌI LLM & WORKER ---
+# --- HÀM GỌI LLM & WORKER PHÂN LUỒNG ---
 def call_llm(system_prompt, prompt_text, api_keys, model_choice) -> tuple[bool, str]:
     gemini_keys = [k.strip() for k in re.split(r'[\n,;\s]+', api_keys.get("gemini", "")) if k.strip()]
     if not gemini_keys: 
         return False, "Chưa nhập Gemini API Key."
     
     if "3.5 Flash" in str(model_choice): model_name = "gemini-3.5-flash"
-    elif "3.1 Flash-Lite" in str(model_choice): model_name = "gemini-3.1-flash-lite"
+    elif "3.1 Flash" in str(model_choice): model_name = "gemini-3.1-flash"
     elif "2.5 Pro" in str(model_choice): model_name = "gemini-2.5-pro"
-    elif "2.5 Flash" in str(model_choice): model_name = "gemini-2.5-flash"
+    elif "3.5 Flash" in str(model_choice): model_name = "gemini-3.6-flash"
     else: model_name = "gemini-3.5-flash" 
 
     num_keys = len(gemini_keys)
     last_error = ""
     
     for i in range(num_keys):
-        current_idx = (st.session_state.key_rotation_index + i) % num_keys
-        current_key = gemini_keys[current_idx]
+        current_key = gemini_keys[i]
         try: 
             client = genai.Client(api_key=current_key)
             safety_settings = [
@@ -201,7 +197,6 @@ def call_llm(system_prompt, prompt_text, api_keys, model_choice) -> tuple[bool, 
             res = client.models.generate_content(model=model_name, contents=prompt_text, config=config)
             
             if res and res.text:
-                st.session_state.key_rotation_index = (current_idx + 1) % num_keys
                 return True, res.text
             else:
                 last_error = "AI trả về kết quả rỗng (Có thể bị Google block ngầm)."
@@ -239,16 +234,47 @@ def process_single_chapter(chap_key, raw_text, api_keys, model_choice, novel_dat
     if retry_count >= max_retries:
         trans_status_dict[chap_key] = "❌ Thất bại (Hết Quota, đã thử 3 lần)"
 
-def sequential_worker(q, api_keys, model_choice, novel_data_dict, trans_status_dict, delay_time):
+def batch_worker(chap_keys_list, api_keys, model_choice, novel_data_dict, trans_status_dict, delay_time, user_email):
     st.session_state.worker_running = True
-    while not q.empty():
-        chap_key = q.get()
-        if chap_key in novel_data_dict.get("raw_chapters", {}):
-            trans_status_dict[chap_key] = "🔄 Đang dịch..."
-            raw_txt = novel_data_dict["raw_chapters"][chap_key]["raw"]
-            process_single_chapter(chap_key, raw_txt, api_keys, model_choice, novel_data_dict, trans_status_dict)
-            time.sleep(delay_time) 
-        q.task_done()
+    batch_size = 3  # Số chương dịch đồng thời trong 1 luồng
+    
+    keys_to_translate = [
+        k for k in chap_keys_list 
+        if not novel_data_dict["raw_chapters"][k].get("translated") or "❌" in novel_data_dict["raw_chapters"][k].get("translated", "")
+    ]
+
+    for i in range(0, len(keys_to_translate), batch_size):
+        batch = keys_to_translate[i : i + batch_size]
+        
+        for k in batch:
+            trans_status_dict[k] = "🔄 Đang dịch..."
+            
+        with concurrent.futures.ThreadPoolExecutor(max_workers=batch_size) as executor:
+            futures = [
+                executor.submit(
+                    process_single_chapter, 
+                    k, 
+                    novel_data_dict["raw_chapters"][k]["raw"], 
+                    api_keys, 
+                    model_choice, 
+                    novel_data_dict, 
+                    trans_status_dict
+                ) for k in batch
+            ]
+            concurrent.futures.wait(futures)
+            
+        # Tự động lưu Supabase theo từng cụm 3 chương để tránh Timeout 57014
+        if supabase and user_email:
+            try:
+                supabase.table("workspaces").upsert({
+                    "email": user_email, 
+                    "workspace_data": novel_data_dict
+                }).execute()
+            except Exception:
+                pass
+                
+        time.sleep(delay_time)
+        
     st.session_state.worker_running = False
 
 # ==========================================
@@ -334,7 +360,6 @@ elif menu == "2. Nguồn Truyện (Cào/Tải Raw)":
                             if err_msg:
                                 st.error(f"❌ Lỗi cào web Zhihu tại link {url}: {err_msg}")
                             elif raw_text:
-                                # Tạo tên file riêng cho từng link Zhihu
                                 safe_title = re.sub(r'[\\/*?:"<>|]', "", url.split('/')[-1]) or "zhihu_post"
                                 file_name = f"Zhihu_{safe_title}_{datetime.now().strftime('%H%M%S')}.txt"
                                 
@@ -345,7 +370,6 @@ elif menu == "2. Nguồn Truyện (Cào/Tải Raw)":
                         else:
                             title, scraped_text = scrape_web_chapter(url)
                             if "❌" not in scraped_text:
-                                # Tạo tên file riêng cho từng link web thường dựa theo tiêu đề
                                 safe_title = re.sub(r'[\\/*?:"<>|]', "", title)[:30]
                                 file_name = f"Web_{safe_title}_{datetime.now().strftime('%H%M%S')}.txt"
                                 
@@ -437,14 +461,28 @@ elif menu == "3. Dịch & Quản Lý":
                 save_user_data_to_supabase()
                 st.rerun()
                 
-        if st.button("🚀 Dịch Tất Cả (Tuần tự)", use_container_width=True):
-            with st.session_state.translation_queue.mutex: st.session_state.translation_queue.queue.clear()
-            for k in chap_keys: st.session_state.translation_queue.put(k)
-            
-            if not st.session_state.worker_running:
-                threading.Thread(target=sequential_worker, args=(st.session_state.translation_queue, st.session_state.novel_data["api_keys"], st.session_state.novel_data["selected_model"], st.session_state.novel_data, st.session_state.trans_status, delay), daemon=True).start()
-                st.toast("✅ Đã bắt đầu tiến trình dịch chạy ngầm!", icon="🚀")
-            else: st.toast("⚠️ Tiến trình dịch đang chạy rồi!", icon="⚠️")
+        col_btn1, col_btn2 = st.columns(2)
+        with col_btn1:
+            if st.button("🚀 Dịch Phân Luồng (3 Chương/Lần)", use_container_width=True):
+                if not st.session_state.worker_running:
+                    threading.Thread(
+                        target=batch_worker, 
+                        args=(
+                            chap_keys, 
+                            st.session_state.novel_data["api_keys"], 
+                            st.session_state.novel_data["selected_model"], 
+                            st.session_state.novel_data, 
+                            st.session_state.trans_status, 
+                            delay,
+                            st.session_state.user_email
+                        ), 
+                        daemon=True
+                    ).start()
+                    st.toast("✅ Đã bắt đầu dịch 3 chương cùng lúc!", icon="🚀")
+                else: st.toast("⚠️ Tiến trình dịch đang chạy rồi!", icon="⚠️")
+        with col_btn2:
+            if st.button("🔄 Làm mới giao diện", use_container_width=True):
+                st.rerun()
         
         st.write("---")
         for k in chap_keys:
