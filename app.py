@@ -30,7 +30,6 @@ except Exception: pass
 def init_supabase():
     if SUPABASE_URL and SUPABASE_KEY:
         try: 
-            # Tăng thời gian chờ (Timeout) kết nối Supabase lên 60s để tránh lỗi "Read operation timed out"
             opts = ClientOptions(postgrest_client_timeout=60, storage_client_timeout=60)
             return create_client(SUPABASE_URL, SUPABASE_KEY, options=opts)
         except Exception: return None
@@ -266,7 +265,6 @@ def batch_worker(chap_keys_list, api_keys, model_choice, novel_data_dict, trans_
             ]
             concurrent.futures.wait(futures)
             
-        # Tự động lưu Supabase sau mỗi 3 chương để tránh lỗi Statement Timeout 57014
         if supabase and user_email:
             try:
                 supabase.table("workspaces").upsert({
@@ -394,11 +392,8 @@ elif menu == "2. Nguồn Truyện (Cào/Tải Raw)":
         st.subheader("📂 Tải lên hoặc Quản Lý File Raw (.txt)")
         uploaded_file = st.file_uploader("Tải lên file tiểu thuyết tiếng Trung (.txt)", type=["txt"], key="txt_uploader")
         
-        # Đoạn xử lý tải file đã sửa chống lặp vô tận (Infinite Loop)
         if uploaded_file is not None:
             existing_filenames = [d["filename"] for d in st.session_state.novel_data.get("raw_docs", [])]
-            
-            # Chỉ lưu nếu file NÀY CHƯA ĐƯỢC LƯU
             if uploaded_file.name not in existing_filenames:
                 content = uploaded_file.read().decode('utf-8', errors='ignore')
                 st.session_state.novel_data["raw_docs"].append({"filename": uploaded_file.name, "content": content})
@@ -462,6 +457,7 @@ elif menu == "3. Dịch & Quản Lý":
         chap_keys = list(chapters.keys())
         st.write(f"**Tổng số chương hiện có:** {len(chap_keys)}")
         
+        # 1. Các nút điều khiển tổng
         col1, col2 = st.columns(2)
         with col1: delay = st.number_input("Delay giữa các lần dịch (giây):", value=2.0, min_value=0.5, step=0.5)
         with col2: 
@@ -473,7 +469,7 @@ elif menu == "3. Dịch & Quản Lý":
                 
         col_btn1, col_btn2 = st.columns(2)
         with col_btn1:
-            if st.button("🚀 Dịch Phân Luồng (3 Chương/Lần)", use_container_width=True):
+            if st.button("🚀 Dịch Tự Động (3 Chương/Lần)", use_container_width=True):
                 if not st.session_state.worker_running:
                     threading.Thread(
                         target=batch_worker, 
@@ -495,24 +491,51 @@ elif menu == "3. Dịch & Quản Lý":
                 st.rerun()
         
         st.write("---")
+        
+        # Cập nhật status cho toàn bộ danh sách chương trước khi render menu thả xuống
         for k in chap_keys:
             if k not in st.session_state.trans_status: 
                 status = "✅ Hoàn thành" if chapters[k].get("translated") else "⏳ Đợi Dịch"
                 st.session_state.trans_status[k] = status
+                
+        # ==========================================
+        # GIAO DIỆN MỚI: CHỌN CHƯƠNG VÀ HIỂN THỊ NGANG
+        # ==========================================
+        st.subheader("📖 Xem & Chỉnh sửa bản dịch")
         
-        cols = st.columns(3)
-        for i, k in enumerate(chap_keys):
-            with cols[i % 3]:
-                st.markdown(f"**{k}** - {st.session_state.trans_status[k]}")
-                with st.expander("Xem / Dịch Lại"):
-                    st.text_area("Bản Raw:", chapters[k]["raw"], height=100, key=f"raw_{k}")
-                    if chapters[k]["translated"]: st.text_area("Bản Dịch:", chapters[k]["translated"], height=100, key=f"trans_{k}")
-                    
-                    if st.button("Dịch chương này", key=f"btn_{k}"):
-                        st.session_state.trans_status[k] = "🔄 Đang dịch..."
-                        process_single_chapter(k, chapters[k]["raw"], st.session_state.novel_data["api_keys"], st.session_state.novel_data["selected_model"], st.session_state.novel_data, st.session_state.trans_status)
-                        save_user_data_to_supabase()
-                        st.rerun()
+        # Tạo danh sách để hiển thị trong selectbox (Có đính kèm trạng thái)
+        options = [f"{k}  ---  ({st.session_state.trans_status[k]})" for k in chap_keys]
+        
+        # Dropdown chọn 1 chương duy nhất để tập trung hiển thị
+        selected_option = st.selectbox("Chọn chương muốn xem:", options)
+        
+        if selected_option:
+            # Lấy lại tên gốc của chương
+            selected_key = selected_option.split("  ---  ")[0]
+            
+            # Nút dịch lại riêng cho chương đang được chọn
+            if st.button(f"✨ Bấm để Dịch chương này", key=f"btn_{selected_key}"):
+                st.session_state.trans_status[selected_key] = "🔄 Đang dịch..."
+                process_single_chapter(
+                    selected_key, 
+                    chapters[selected_key]["raw"], 
+                    st.session_state.novel_data["api_keys"], 
+                    st.session_state.novel_data["selected_model"], 
+                    st.session_state.novel_data, 
+                    st.session_state.trans_status
+                )
+                save_user_data_to_supabase()
+                st.rerun()
+            
+            # Hiển thị trái/phải (Raw và Translated)
+            col_raw, col_trans = st.columns(2)
+            with col_raw:
+                st.markdown("🇨🇳 **Bản Raw (Tiếng Trung)**")
+                st.text_area("raw_text", chapters[selected_key]["raw"], height=500, label_visibility="collapsed")
+            with col_trans:
+                st.markdown("🇻🇳 **Bản Dịch (Tiếng Việt)**")
+                st.text_area("trans_text", chapters[selected_key].get("translated", ""), height=500, label_visibility="collapsed")
                         
+        st.write("---")
         if st.button("⬇️ Xuất EPUB", use_container_width=True):
             st.info("Chức năng xuất EPUB chuẩn bị ra mắt, vui lòng copy text tạm nhé!")
