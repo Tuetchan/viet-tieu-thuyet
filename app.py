@@ -6,93 +6,58 @@ import json
 import os
 
 # ==========================================
-# 1. CẤU HÌNH TRANG & CSS BẤT TỬ (CHỐNG LỖI DARK MODE & FORM)
+# 1. CẤU HÌNH TRANG & CSS (THÍCH ỨNG 100% SÁNG/TỐI)
 # ==========================================
 st.set_page_config(page_title="Web Đọc Truyện", page_icon="📖", layout="wide")
 
 st.markdown("""
     <style>
-    /* 1. ÉP NỀN SÁNG CHO TOÀN BỘ TRANG */
-    [data-testid="stAppViewContainer"], [data-testid="stHeader"] { 
-        background-color: #f4f6f9 !important; 
-    }
-    [data-testid="stSidebar"] { 
-        background-color: #ffffff !important; 
-        border-right: 1px solid #ddd !important; 
-    }
-    
-    /* 2. ÉP TẤT CẢ CHỮ THÀNH MÀU ĐEN (CHỐNG LỖI CHỮ TRẮNG TÀNG HÌNH) */
-    h1, h2, h3, h4, h5, h6, p, label, span, li { 
-        color: #1a1a1a !important; 
-    }
-    
-    /* Ngoại trừ: Chữ trong Nút Primary (Màu đỏ/xanh) phải giữ màu trắng */
-    button[kind="primary"], button[kind="primary"] * { 
-        color: #ffffff !important; 
-    }
-    
-    /* 3. SỬA LỖI Ô NHẬP LIỆU TRONG ADMIN BỊ ĐEN/TÀNG HÌNH CHỮ */
-    /* Ép nền các ô nhập liệu thành màu trắng */
-    div[data-baseweb="input"] > div, 
-    div[data-baseweb="textarea"] > div, 
-    div[data-baseweb="select"] > div,
-    div[data-baseweb="base-input"] {
-        background-color: #ffffff !important; 
-        border: 1px solid #cccccc !important;
-    }
-    
-    /* Ép chữ bên trong các ô nhập liệu thành màu đen */
-    div[data-baseweb="input"] input, 
-    div[data-baseweb="textarea"] textarea,
-    div[data-baseweb="select"] * {
-        color: #111111 !important;
-        -webkit-text-fill-color: #111111 !important; /* Bắt buộc để hiện chữ trên Chrome/Edge */
-    }
-    
-    /* CHỮA BỆNH ĐẶC TRỊ: Các ô bị KHÓA (Lượt xem, Đề xuất...) */
-    input:disabled, textarea:disabled {
-        background-color: #f0f2f6 !important;
-        color: #111111 !important;
-        -webkit-text-fill-color: #111111 !important;
-        opacity: 1 !important;
-    }
+    /* BỎ TOÀN BỘ CÁC ĐOẠN ÉP MÀU NỀN & MÀU CHỮ ĐỂ TRÁNH LỖI XUNG ĐỘT THEME */
 
-    /* 4. ĐỊNH DẠNG ẢNH BÌA TRUYỆN 2x3 CHUẨN XÁC */
+    /* ========================================== */
+    /* CSS CHO ẢNH BÌA TRANG CHỦ (TỶ LỆ CHUẨN 2x3)*/
+    /* ========================================== */
     .novel-cover {
         width: 100%;
-        aspect-ratio: 2 / 3;
+        aspect-ratio: 2 / 3; /* Ép tỷ lệ bìa không bị lùn hay méo */
         object-fit: cover;
-        border-radius: 6px;
-        box-shadow: 0 2px 5px rgba(0,0,0,0.15);
-        margin-bottom: 2px;
+        border-radius: 8px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+        margin-bottom: 5px;
     }
 
-    /* 5. HACK CSS: TÀNG HÌNH NÚT BẤM, ÉP CẮT CHỮ "..." NẾU DÀI */
+    /* ========================================== */
+    /* HACK CSS: NÚT TÊN TRUYỆN TRONG SUỐT & CẮT "..." */
+    /* ========================================== */
     div[data-testid="column"] button[kind="secondary"] {
-        background-color: transparent !important;
+        background: transparent !important;
         border: none !important;
         box-shadow: none !important;
-        padding: 5px 0 0 0 !important;
+        padding: 0 !important;
         min-height: 0 !important;
     }
     div[data-testid="column"] button[kind="secondary"] p {
-        white-space: nowrap !important; 
+        white-space: nowrap !important; /* Không cho chữ rớt dòng */
         overflow: hidden !important; 
-        text-overflow: ellipsis !important; 
-        font-size: 13px !important;
+        text-overflow: ellipsis !important; /* Tự động thêm ... */
+        font-size: 14px !important;
         font-weight: 700 !important;
-        text-align: left !important;
+        text-align: center !important;
         width: 100% !important;
+        margin: 0 !important;
+        display: block !important;
     }
     div[data-testid="column"] button[kind="secondary"]:hover p {
-        color: #1f77b4 !important; 
+        color: #ff4b4b !important; /* Đổi màu đỏ khi trỏ chuột */
     }
 
     /* Chỉ số thống kê bên dưới tên truyện */
     .small-stats { 
         font-size: 12px !important; 
-        color: #777777 !important; 
-        margin-top: -2px;
+        opacity: 0.7; /* Làm mờ đi một chút để nhường nổi bật cho tên truyện */
+        text-align: center;
+        margin-top: -3px;
+        margin-bottom: 15px;
     }
     
     /* Ảnh bìa nhỏ xíu ở trang Admin/Xem thêm */
@@ -103,6 +68,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
+# Ảnh xám mặc định (Phòng hờ mạng bị lỗi tải ảnh)
 DEFAULT_COVER = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAoAAAAKCAQAAAAnOwc2AAAAEUlEQVR42mO88Z8BAzAOZUEAhy8S9yVvD1sAAAAASUVORK5CYII="
 
 # ==========================================
@@ -189,6 +155,7 @@ if st.session_state.page == 'home':
     top_dexuat = sorted(truyen_hien_thi, key=lambda x: x["de_xuat"], reverse=True)
     moi_dang = list(reversed(truyen_hien_thi))
 
+    # --- TAB XEM THÊM ---
     if st.session_state.view_more_category:
         st.button("⬅️ Quay lại Trang Chủ", on_click=lambda: st.session_state.update(view_more_category=None))
         cat_name = st.session_state.view_more_category
@@ -211,6 +178,7 @@ if st.session_state.page == 'home':
                 st.caption(f"👍 {n['de_xuat']} đề xuất")
             st.write("---")
             
+    # --- TRANG CHỦ (LƯỚI 6 CỘT) ---
     else:
         st.title("Trang Chủ Đọc Truyện")
         if not truyen_hien_thi: st.info(f"Chưa có truyện nào thuộc danh mục '{chon_the_loai}'.")
@@ -222,6 +190,7 @@ if st.session_state.page == 'home':
                     if st.button("Xem thêm >", use_container_width=True, key=f"more_{cat_name}"):
                         st.session_state.view_more_category = cat_name; st.rerun()
                 
+                # Cắt 12 truyện (Vẽ thành 2 hàng, mỗi hàng 6 truyện)
                 novels_12 = novels_list[:12]
                 for i in range(0, len(novels_12), 6):
                     cols = st.columns(6) 
