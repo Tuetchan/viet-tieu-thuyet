@@ -244,10 +244,10 @@ elif st.session_state.page == 'admin':
     # KIỂM TRA ĐĂNG NHẬP
     if not st.session_state.authenticated:
         st.title("🔒 Khu vực dành riêng cho Tác Giả")
-        st.info("Vui lòng nhập mật khẩu để vào trang quản lý (Mật khẩu mặc định là: 123456)")
+        st.info("Vui lòng nhập mật khẩu để vào trang quản lý)")
         pwd = st.text_input("Nhập mật khẩu:", type="password")
         if st.button("Mở Khóa"):
-            if pwd == "123456":
+            if pwd == "971856":
                 st.session_state.authenticated = True
                 st.rerun()
             else:
