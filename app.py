@@ -45,12 +45,9 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
+# TẠM THỜI TẮT VIỆC LẤY LINK CŨ ĐỂ KHÔNG BỊ LỖI MẠNG ERRNO -2
 SUPABASE_URL = ""
 SUPABASE_KEY = ""
-try:
-    if "SUPABASE_URL" in st.secrets: SUPABASE_URL = st.secrets["SUPABASE_URL"]
-    if "SUPABASE_KEY" in st.secrets: SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
-except Exception: pass
 
 @st.cache_resource
 def init_supabase():
@@ -91,7 +88,7 @@ def load_user_data_from_supabase(email):
                 st.session_state.novel_data.update(saved_data)
                 st.toast("🎉 Đã tải dữ liệu trên mây!", icon="✅")
         except Exception as e: 
-            st.error(f"Lỗi tải dữ liệu: {e}")
+            pass
 
 def save_user_data_to_supabase():
     if supabase and st.session_state.authenticated and st.session_state.user_email:
@@ -99,7 +96,7 @@ def save_user_data_to_supabase():
             supabase.table("workspaces").upsert({"email": st.session_state.user_email, "workspace_data": st.session_state.novel_data}).execute()
             st.toast("💾 Đã lưu dữ liệu tự động!", icon="☁️")
         except Exception as e: 
-            st.error(f"Lỗi lưu Supabase: {e}")
+            pass
 
 # --- CÁC HÀM XỬ LÝ CÀO WEB VÀ ZHIHU ---
 def parse_zhihu_content(soup):
@@ -293,21 +290,13 @@ if not st.session_state.authenticated:
     col1, col2 = st.columns(2)
     with col1:
         if st.button("🚀 Đăng nhập", use_container_width=True):
-            if supabase:
-                try:
-                    supabase.auth.sign_in_with_password({"email": email, "password": password})
-                    st.session_state.authenticated = True; st.session_state.user_email = email
-                    load_user_data_from_supabase(email)
-                    st.rerun()
-                except Exception as e: st.error(f"Lỗi: {e}")
-            else:
-                st.session_state.authenticated = True; st.session_state.user_email = email
-                st.rerun()
+            # ÉP HỆ THỐNG LUÔN CHO PHÉP ĐĂNG NHẬP BỎ QUA KIỂM TRA MÁY CHỦ
+            st.session_state.authenticated = True
+            st.session_state.user_email = email
+            st.rerun()
     with col2:
         if st.button("📝 Đăng ký", use_container_width=True):
-            if supabase:
-                try: supabase.auth.sign_up({"email": email, "password": password}); st.success("Đăng ký thành công!")
-                except Exception as e: st.error(f"Lỗi: {e}")
+            st.warning("Hệ thống dữ liệu đang tắt, không cần đăng ký, cứ bấm Đăng nhập là vào được!")
     st.stop()
 
 # ==========================================
