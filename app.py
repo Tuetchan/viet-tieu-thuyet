@@ -48,7 +48,7 @@ def init_supabase():
 
 supabase = init_supabase()
 
-# Khởi tạo Session State & Kho chứa truyện
+# Khởi tạo Session State
 if "authenticated" not in st.session_state: st.session_state.authenticated = False
 if "page" not in st.session_state: st.session_state.page = "home"
 if "current_novel" not in st.session_state: st.session_state.current_novel = ""
@@ -60,14 +60,16 @@ if "novel_data" not in st.session_state:
         "selected_model": "Gemini 3.5 Flash",
         "raw_docs": [],
         "raw_chapters": {},
-        "trans_prompt": "Bạn là một dịch giả chuyên nghiệp...",
-        # KHO CHỨA DANH SÁCH TRUYỆN ĐỂ ĐỒNG BỘ TRANG CHỦ & QUẢN LÝ
-        "danh_sach_truyen": [
-            {"ten": "Xuyên Không Thành Hệ Thống", "khu_vuc": "5 Sao"},
-            {"ten": "Lạc Sủng", "khu_vuc": "5 Sao"},
-            {"ten": "Truyện Đề Xuất A", "khu_vuc": "Đề Xuất"}
-        ]
+        "trans_prompt": "Bạn là một dịch giả chuyên nghiệp..."
     }
+
+# BẢO VỆ DỮ LIỆU CŨ: Tự động thêm "Kho chứa truyện" nếu bản lưu cũ chưa có
+if "danh_sach_truyen" not in st.session_state.novel_data:
+    st.session_state.novel_data["danh_sach_truyen"] = [
+        {"ten": "Xuyên Không Thành Hệ Thống", "khu_vuc": "5 Sao"},
+        {"ten": "Lạc Sủng", "khu_vuc": "5 Sao"},
+        {"ten": "Truyện Đề Xuất A", "khu_vuc": "Đề Xuất"}
+    ]
 
 if "worker_running" not in st.session_state: st.session_state.worker_running = False
 
@@ -123,14 +125,13 @@ if st.session_state.page == 'home':
     st.subheader("⭐ Truyện 5 Sao Đáng Đọc")
     truyen_5sao = [t for t in kho_truyen if t["khu_vuc"] == "5 Sao"]
     
-    # Tự động vẽ các nút dựa trên số lượng truyện 5 sao
     for i in range(0, len(truyen_5sao), 4):
         cols = st.columns(4)
         for j in range(4):
             if i + j < len(truyen_5sao):
                 truyen = truyen_5sao[i+j]
                 with cols[j]:
-                    if st.button(f"📖 {truyen['ten']}\n\n⭐⭐⭐⭐⭐", use_container_width=True, key=f"btn_{truyen['ten']}"):
+                    if st.button(f"📖 {truyen['ten']}\n\n⭐⭐⭐⭐⭐", use_container_width=True, key=f"btn_5sao_{i}_{j}"):
                         st.session_state.current_novel = truyen['ten']
                         st.session_state.page = 'read'
                         st.rerun()
@@ -147,7 +148,7 @@ if st.session_state.page == 'home':
             if i + j < len(truyen_dexuat):
                 truyen = truyen_dexuat[i+j]
                 with cols[j]:
-                    if st.button(f"📖 {truyen['ten']}\n\n🔥 Hot", use_container_width=True, key=f"btn_{truyen['ten']}"):
+                    if st.button(f"📖 {truyen['ten']}\n\n🔥 Hot", use_container_width=True, key=f"btn_dx_{i}_{j}"):
                         st.session_state.current_novel = truyen['ten']
                         st.session_state.page = 'read'
                         st.rerun()
@@ -235,8 +236,8 @@ elif st.session_state.page == 'admin':
                 st.write(f"- **{truyen['ten']}** (Đang nằm ở khu: {truyen['khu_vuc']})")
 
         with tab_cao:
-            st.write("Giao diện cào truyện (Giữ nguyên)...")
+            st.write("Giao diện cào truyện...")
         with tab_dich:
-            st.write("Giao diện dịch AI (Giữ nguyên)...")
+            st.write("Giao diện dịch AI...")
         with tab_thong_ke:
-            st.write("Giao diện thống kê (Giữ nguyên)...")
+            st.write("Giao diện thống kê...")
