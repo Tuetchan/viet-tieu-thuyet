@@ -86,6 +86,7 @@ if "novels" not in st.session_state:
             "luot_xem": 15200,
             "de_xuat": 1400,
             "sao": 250, 
+            "hien_thi_trang_chu": True, # Thuộc tính kiểm soát hiển thị
             "chuong": [
                 {"title": "Chương 1: Bắt đầu", "content": "Nội dung chi tiết chương 1 nằm ở đây...", "views": 1500},
                 {"title": "Chương 2: Cảnh báo", "content": "Nội dung chi tiết chương 2...", "views": 1450}
@@ -101,9 +102,15 @@ if "novels" not in st.session_state:
             "luot_xem": 32000,
             "de_xuat": 5600,
             "sao": 850,
+            "hien_thi_trang_chu": True,
             "chuong": [{"title": "Chương 1: Gặp gỡ", "content": "Nội dung chương 1...", "views": 5000}]
         }
     }
+
+# Đảm bảo các truyện cũ không bị lỗi nếu thiếu key "hien_thi_trang_chu"
+for k, v in st.session_state.novels.items():
+    if "hien_thi_trang_chu" not in v:
+        v["hien_thi_trang_chu"] = True
 
 # ==========================================
 # 3. THANH BÊN (SIDEBAR) & LỌC THỂ LOẠI
@@ -123,7 +130,7 @@ if st.sidebar.button("⚙️ Chủ Sở Hữu (Ẩn)", use_container_width=True)
     st.rerun()
 
 # ==========================================
-# 4. GIAO DIỆN TRANG CHỦ (3 KHU VỰC VUỐT NGANG)
+# 4. GIAO DIỆN TRANG CHỦ (ĐÃ TÍCH HỢP BỘ LỌC ĐỒNG BỘ)
 # ==========================================
 def draw_novel_card(novel, key_prefix):
     st.image(novel["bia"], use_container_width=True)
@@ -136,14 +143,16 @@ def draw_novel_card(novel, key_prefix):
 if st.session_state.page == 'home':
     st.title("Trang Chủ Đọc Truyện")
     
-    tat_ca_truyen = list(st.session_state.novels.values())
+    # CHỈ LẤY NHỮNG TRUYỆN ĐÃ ĐƯỢC BẤM NÚT "ĐỒNG BỘ RA TRANG CHỦ"
+    tat_ca_truyen = [t for t in st.session_state.novels.values() if t.get("hien_thi_trang_chu") == True]
+    
     if chon_the_loai != "Tất cả":
         truyen_hien_thi = [t for t in tat_ca_truyen if chon_the_loai in t.get("the_loai", [])]
     else:
         truyen_hien_thi = tat_ca_truyen
 
     if not truyen_hien_thi:
-        st.info(f"Chưa có truyện nào thuộc thể loại '{chon_the_loai}'.")
+        st.info(f"Chưa có truyện nào thuộc danh mục này được xuất bản.")
     else:
         top_sao = sorted(truyen_hien_thi, key=lambda x: x["sao"], reverse=True)
         top_dexuat = sorted(truyen_hien_thi, key=lambda x: x["de_xuat"], reverse=True)
@@ -263,19 +272,19 @@ elif st.session_state.page == 'admin':
                 st.session_state.is_admin = False; st.rerun()
 
         st.write("---")
-        danh_sach_quan_ly = {k: v["ten"] for k, v in st.session_state.novels.items()}
-        danh_sach_quan_ly["new_novel"] = "➕ THÊM TRUYỆN MỚI TỪ ĐẦU..."
+        danh_sach_quan_ly = {k: f"{'🟢 ' if v.get('hien_thi_trang_chu') else '🔴 (Nháp) '}{v['ten']}" for k, v in st.session_state.novels.items()}
+        danh_sach_quan_ly["new_novel"] = "➕ TẠO BẢN NHÁP TRUYỆN MỚI..."
         
         selected_mng_id = st.selectbox("Chọn Truyện Để Thao Tác:", options=list(danh_sach_quan_ly.keys()), format_func=lambda x: danh_sach_quan_ly[x])
         
         st.write("---")
         tab_sua, tab_chuong, tab_thongke = st.tabs(["📝 Sửa Truyện", "📋 Danh Sách Chương", "📊 Thống Kê"])
 
-        # -------- TAB 1: SỬA TRUYỆN --------
+        # -------- TAB 1: SỬA TRUYỆN & ĐỒNG BỘ TRANG CHỦ --------
         with tab_sua:
             st.markdown('<div class="admin-mode">', unsafe_allow_html=True)
             if selected_mng_id == "new_novel":
-                st.subheader("Tạo Truyện Mới")
+                st.subheader("Tạo Bản Nháp Mới")
                 n_id = f"truyen_{int(time.time())}"
                 n_ten = st.text_input("Tên Truyện Mới:")
                 n_vanan = st.text_area("Văn Án:")
@@ -288,15 +297,16 @@ elif st.session_state.page == 'admin':
                     b64_img = f"data:image/jpeg;base64,{b64}"
                     st.success("Tải ảnh thành công!")
 
-                if st.button("Tạo Truyện Mới", type="primary"):
+                # Tạo mới mặc định sẽ là BẢN NHÁP (Chưa hiện ra trang chủ)
+                if st.button("Lưu Vào Kho Nháp", type="primary"):
                     if n_ten:
                         st.session_state.novels[n_id] = {
                             "id": n_id, "ten": n_ten, "van_an": n_vanan, "the_loai": n_theloai,
-                            "bia": b64_img,
+                            "bia": b64_img, "hien_thi_trang_chu": False, # <--- Ẩn ngoài trang chủ
                             "tinh_trang": "Đang cập nhật", "luot_xem": 0, "de_xuat": 0, "sao": 0, "chuong": []
                         }
-                        st.success("Tạo thành công! Trang chủ đã tự động hiển thị truyện này.")
-                        time.sleep(1); st.rerun()
+                        st.success("Tạo nháp thành công! Truyện đã lưu trong hệ thống nhưng chưa xuất hiện ở Trang Chủ.")
+                        time.sleep(1.5); st.rerun()
             else:
                 edit_novel = st.session_state.novels[selected_mng_id]
                 st.subheader("Thông Tin Truyện")
@@ -308,17 +318,32 @@ elif st.session_state.page == 'admin':
                     if upload_bia:
                         b64 = base64.b64encode(upload_bia.read()).decode()
                         st.session_state["temp_img"] = f"data:image/jpeg;base64,{b64}"
-                        st.success("Ảnh đã sẵn sàng. Bấm Lưu bên phải để thay đổi!")
+                        st.success("Ảnh đã sẵn sàng. Bấm Lưu để thay đổi!")
 
                 with c_form:
+                    # KHU VỰC NÚT ĐỒNG BỘ TRANG CHỦ MỚI THÊM 
+                    st.markdown("### 🌐 Quản lý Hiển thị")
+                    if edit_novel.get("hien_thi_trang_chu"):
+                        st.success("🟢 Truyện này ĐANG HIỆN trên Trang Chủ")
+                        if st.button("🚫 Gỡ Khỏi Trang Chủ (Chuyển thành Nháp)"):
+                            edit_novel["hien_thi_trang_chu"] = False
+                            st.rerun()
+                    else:
+                        st.warning("🔴 Truyện này ĐANG ẨN (Chỉ Admin mới thấy)")
+                        if st.button("🚀 Thêm Truyện Vào Trang Chủ (Đồng Bộ)", type="primary"):
+                            edit_novel["hien_thi_trang_chu"] = True
+                            st.success("Đã đẩy truyện ra ngoài Trang Chủ thành công!")
+                            time.sleep(1); st.rerun()
+                            
+                    st.divider()
                     edit_novel["ten"] = st.text_input("Tên truyện:", value=edit_novel["ten"])
                     edit_novel["tinh_trang"] = st.selectbox("Tình trạng:", ["Đang cập nhật", "Hoàn thành", "Tạm ngưng"], index=["Đang cập nhật", "Hoàn thành", "Tạm ngưng"].index(edit_novel["tinh_trang"]))
                     edit_novel["the_loai"] = st.multiselect("Thể loại (Tag):", danh_sach_the_loai_goc, default=edit_novel["the_loai"])
                     
                     cc1, cc2, cc3 = st.columns(3)
-                    cc1.text_input("Lượt xem (Tự nhảy)", value=edit_novel["luot_xem"], disabled=True)
-                    cc2.text_input("Số đề xuất (Tự nhảy)", value=edit_novel["de_xuat"], disabled=True)
-                    cc3.text_input("Điểm Sao (Tự nhảy)", value=edit_novel["sao"], disabled=True)
+                    cc1.text_input("Lượt xem", value=edit_novel["luot_xem"], disabled=True)
+                    cc2.text_input("Số đề xuất", value=edit_novel["de_xuat"], disabled=True)
+                    cc3.text_input("Điểm Sao", value=edit_novel["sao"], disabled=True)
                 
                 edit_novel["van_an"] = st.text_area("Văn án:", value=edit_novel["van_an"], height=150)
                 if st.button("💾 Lưu Thay Đổi Cấu Hình", type="primary"):
@@ -336,7 +361,6 @@ elif st.session_state.page == 'admin':
             else:
                 mng_novel = st.session_state.novels[selected_mng_id]
                 
-                # NÚT THÊM CHƯƠNG NHƯ YÊU CẦU
                 if st.button("➕ Thêm Chương Mới", type="primary"):
                     new_idx = len(mng_novel['chuong'])
                     mng_novel['chuong'].append({"title": f"Chương {new_idx + 1}", "content": "", "views": 0})
@@ -364,9 +388,7 @@ elif st.session_state.page == 'admin':
                 st.divider()
                 st.subheader(f"📋 Các chương hiện có ({len(mng_novel['chuong'])} chương)")
                 
-                # GIAO DIỆN HIỂN THỊ DẠNG DANH SÁCH CÓ NÚT EDIT/DELETE
                 for idx, c in enumerate(mng_novel['chuong']):
-                    # NẾU ĐANG BẤM SỬA CHƯƠNG NÀY -> HIỆN FORM NHẬP LIỆU
                     if st.session_state.get("editing_chap_idx") == f"{selected_mng_id}_{idx}":
                         with st.container(border=True):
                             new_title = st.text_input("Tên chương", value=c['title'], key=f"edit_title_{idx}")
@@ -384,8 +406,6 @@ elif st.session_state.page == 'admin':
                                 if st.button("❌ Hủy", use_container_width=True, key=f"cancel_{idx}"):
                                     st.session_state.editing_chap_idx = None
                                     st.rerun()
-                    
-                    # NẾU KHÔNG SỬA -> HIỆN DẠNG DANH SÁCH LIST
                     else:
                         with st.container(border=True):
                             col_title, col_edit, col_del = st.columns([6, 2, 2])
