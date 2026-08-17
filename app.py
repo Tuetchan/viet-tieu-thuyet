@@ -6,20 +6,58 @@ import json
 import os
 
 # ==========================================
-# 1. CẤU HÌNH TRANG & CSS TOÀN CỤC
+# 1. CẤU HÌNH TRANG & CSS (CHỈ CĂN CHỈNH BỐ CỤC)
 # ==========================================
 st.set_page_config(page_title="Web Đọc Truyện", page_icon="📖", layout="wide")
 
 st.markdown("""
     <style>
-    /* 1. CHUẨN HÓA ẢNH BÌA TRANG CHỦ TỶ LỆ 2x3 */
+    /* BỎ TOÀN BỘ CÁC ĐOẠN ÉP MÀU NỀN & MÀU CHỮ ĐỂ TRÁNH LỖI XUNG ĐỘT THEME */
+
+    /* ========================================== */
+    /* CSS CHO ẢNH BÌA TRANG CHỦ (TỶ LỆ CHUẨN 2x3)*/
+    /* ========================================== */
     .novel-cover {
         width: 100%;
-        aspect-ratio: 2 / 3; /* Ép tỷ lệ bìa không bị méo */
+        aspect-ratio: 2 / 3; /* Ép tỷ lệ bìa không bị lùn hay méo */
         object-fit: cover;
-        border-radius: 6px;
-        box-shadow: 0 2px 5px rgba(0,0,0,0.3);
-        margin-bottom: 2px;
+        border-radius: 8px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+        margin-bottom: 5px;
+    }
+
+    /* ========================================== */
+    /* HACK CSS: NÚT TÊN TRUYỆN TRONG SUỐT & CẮT "..." */
+    /* ========================================== */
+    div[data-testid="column"] button[kind="secondary"] {
+        background: transparent !important;
+        border: none !important;
+        box-shadow: none !important;
+        padding: 0 !important;
+        min-height: 0 !important;
+    }
+    div[data-testid="column"] button[kind="secondary"] p {
+        white-space: nowrap !important; /* Không cho chữ rớt dòng */
+        overflow: hidden !important; 
+        text-overflow: ellipsis !important; /* Tự động thêm ... */
+        font-size: 14px !important;
+        font-weight: 700 !important;
+        text-align: center !important;
+        width: 100% !important;
+        margin: 0 !important;
+        display: block !important;
+    }
+    div[data-testid="column"] button[kind="secondary"]:hover p {
+        color: #ff4b4b !important; /* Đổi màu đỏ khi trỏ chuột */
+    }
+
+    /* Chỉ số thống kê bên dưới tên truyện */
+    .small-stats { 
+        font-size: 12px !important; 
+        opacity: 0.7; /* Làm mờ đi một chút để nhường nổi bật cho tên truyện */
+        text-align: center;
+        margin-top: -3px;
+        margin-bottom: 15px;
     }
     
     /* Ảnh bìa nhỏ xíu ở trang Admin/Xem thêm */
@@ -27,21 +65,10 @@ st.markdown("""
         width: 45px; height: 65px; object-fit: cover; 
         border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.3);
     }
-
-    /* 2. CHỈ SỐ THỐNG KÊ (Sao, Đề xuất) */
-    .small-stats { 
-        font-size: 11.5px !important; 
-        opacity: 0.6; 
-        text-align: left !important;
-        margin-top: 2px;
-        white-space: nowrap !important;
-        overflow: hidden !important;
-        text-overflow: ellipsis !important;
-    }
     </style>
 """, unsafe_allow_html=True)
 
-# Ảnh xám mặc định
+# Ảnh xám mặc định (Phòng hờ mạng bị lỗi tải ảnh)
 DEFAULT_COVER = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAoAAAAKCAQAAAAnOwc2AAAAEUlEQVR42mO88Z8BAzAOZUEAhy8S9yVvD1sAAAAASUVORK5CYII="
 
 # ==========================================
@@ -110,7 +137,7 @@ if st.sidebar.button("⚙️ Chủ Sở Hữu (Ẩn)", use_container_width=True)
     st.session_state.page = 'admin'; st.rerun()
 
 # ==========================================
-# 5. GIAO DIỆN TRANG CHỦ & XEM THÊM
+# 5. TRANG CHỦ & XEM THÊM
 # ==========================================
 def click_novel(novel_id):
     st.session_state.current_novel_id = novel_id
@@ -120,48 +147,6 @@ def click_novel(novel_id):
     st.rerun()
 
 if st.session_state.page == 'home':
-    # CSS PHÂN LẬP: Chỉ cắt chữ và làm tàng hình nút bấm ở riêng khu vực Trang Chủ
-    st.markdown("""
-        <style>
-        /* Tàng hình nút truyện & ÉP BẮT BUỘC cắt chữ "..." */
-        [data-testid="stAppViewBlockContainer"] .stButton > button[kind="secondary"] {
-            background: transparent !important;
-            border: none !important;
-            box-shadow: none !important;
-            padding: 5px 0 0 0 !important;
-            display: block !important;
-            width: 100% !important;
-            overflow: hidden !important;
-        }
-        [data-testid="stAppViewBlockContainer"] .stButton > button[kind="secondary"] p {
-            white-space: nowrap !important; /* Cấm rớt dòng */
-            overflow: hidden !important; 
-            text-overflow: ellipsis !important; /* Ép dấu ... */
-            font-size: 13.5px !important;
-            font-weight: 700 !important;
-            text-align: left !important; /* Căn trái y như ảnh 1 */
-            width: 100% !important;
-            margin: 0 !important;
-            display: block !important;
-        }
-        [data-testid="stAppViewBlockContainer"] .stButton > button[kind="secondary"]:hover p {
-            color: #ff4b4b !important; 
-        }
-
-        /* Phục hồi thiết kế nút bấm trong Sidebar để không bị tàng hình theo */
-        [data-testid="stSidebar"] .stButton > button {
-            background-color: rgba(128, 128, 128, 0.1) !important;
-            border: 1px solid rgba(128, 128, 128, 0.3) !important;
-            border-radius: 6px !important;
-            padding: 5px 10px !important;
-        }
-        [data-testid="stSidebar"] .stButton > button p {
-            text-align: center !important;
-            white-space: normal !important;
-        }
-        </style>
-    """, unsafe_allow_html=True)
-
     tat_ca_truyen = [t for t in st.session_state.novels.values() if t.get("hien_thi_trang_chu") == True]
     if chon_the_loai != "Tất cả": truyen_hien_thi = [t for t in tat_ca_truyen if chon_the_loai in t.get("the_loai", [])]
     else: truyen_hien_thi = tat_ca_truyen
@@ -193,7 +178,7 @@ if st.session_state.page == 'home':
                 st.caption(f"👍 {n['de_xuat']} đề xuất")
             st.write("---")
             
-    # --- TRANG CHỦ LƯỚI ---
+    # --- TRANG CHỦ (LƯỚI 6 CỘT) ---
     else:
         st.title("Trang Chủ Đọc Truyện")
         if not truyen_hien_thi: st.info(f"Chưa có truyện nào thuộc danh mục '{chon_the_loai}'.")
@@ -202,17 +187,16 @@ if st.session_state.page == 'home':
                 col_title, col_space, col_btn = st.columns([7, 1, 2])
                 with col_title: st.subheader(title)
                 with col_btn:
-                    # Nút Xem thêm nổi bật (Primary) không bị ảnh hưởng bởi CSS cắt chữ
-                    if st.button("Xem thêm >", use_container_width=True, key=f"more_{cat_name}", type="primary"):
+                    if st.button("Xem thêm >", use_container_width=True, key=f"more_{cat_name}"):
                         st.session_state.view_more_category = cat_name; st.rerun()
                 
-                # Cắt 6 truyện (Vẽ thành 2 hàng, mỗi hàng 3 truyện)
-                novels_6 = novels_list[:6]
-                for i in range(0, len(novels_6), 3):
-                    cols = st.columns(3) 
-                    for j in range(3):
-                        if i + j < len(novels_6):
-                            n = novels_6[i+j]
+                # Cắt 12 truyện (Vẽ thành 2 hàng, mỗi hàng 6 truyện)
+                novels_12 = novels_list[:12]
+                for i in range(0, len(novels_12), 6):
+                    cols = st.columns(6) 
+                    for j in range(6):
+                        if i + j < len(novels_12):
+                            n = novels_12[i+j]
                             with cols[j]:
                                 # ẢNH BÌA
                                 st.markdown(f'<img src="{n["bia"]}" class="novel-cover">', unsafe_allow_html=True)
@@ -287,7 +271,8 @@ elif st.session_state.page == 'read':
 elif st.session_state.page == 'admin':
     if not st.session_state.is_admin:
         st.title("🔒 Khu Vực Quản Trị")
-        pwd = st.text_input("Nhập mật khẩu (Pass: 971856):", type="password")
+        # Đã thay đổi dòng bên dưới để ẩn mật khẩu gợi ý
+        pwd = st.text_input("Nhập mật khẩu quản trị:", type="password") 
         if st.button("Mở Khóa"):
             if pwd == "971856": st.session_state.is_admin = True; st.rerun()
             else: st.error("Mật khẩu không chính xác.")
