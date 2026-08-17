@@ -17,7 +17,7 @@ st.markdown("""
         padding-bottom: 15px;
         gap: 15px;
     }
-    /* Cố định kích thước mỗi khung truyện */
+    /* Cố định kích thước mỗi khung truyện ngoài trang chủ */
     [data-testid="column"] {
         min-width: 160px;
         max-width: 160px;
@@ -41,6 +41,26 @@ st.markdown("""
         color: #ff4b4b;
         background: transparent;
     }
+    /* CSS Riêng Cho Bảng Quản Lý (Ghi đè lại cột để không bị bóp nghẹt) */
+    .admin-mode [data-testid="column"] {
+        min-width: unset;
+        max-width: unset;
+        flex: 1 1 auto;
+        text-align: left;
+        background-color: transparent;
+        box-shadow: none;
+        padding: 0;
+    }
+    .admin-mode .stButton > button {
+        border: 1px solid #ddd;
+        background: #f1f3f4;
+        color: #333;
+        font-weight: normal;
+    }
+    .admin-mode .stButton > button[kind="primary"] {
+        background: #1f77b4;
+        color: white;
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -51,6 +71,7 @@ if "page" not in st.session_state: st.session_state.page = "home"
 if "current_novel_id" not in st.session_state: st.session_state.current_novel_id = ""
 if "is_admin" not in st.session_state: st.session_state.is_admin = False
 if "unlocked_novels" not in st.session_state: st.session_state.unlocked_novels = []
+if "editing_chap_idx" not in st.session_state: st.session_state.editing_chap_idx = None
 
 # Dữ liệu gốc mô phỏng Database
 if "novels" not in st.session_state:
@@ -81,18 +102,6 @@ if "novels" not in st.session_state:
             "de_xuat": 5600,
             "sao": 850,
             "chuong": [{"title": "Chương 1: Gặp gỡ", "content": "Nội dung chương 1...", "views": 5000}]
-        },
-        "truyen_3": {
-            "id": "truyen_3",
-            "ten": "Đại Lão Trở Về",
-            "bia": "https://via.placeholder.com/150x220/c0392b/ffffff?text=Dai+Lao",
-            "van_an": "Ngày hắn trở về, bầu trời đổi màu...",
-            "the_loai": ["Đô Thị", "Hệ Thống"],
-            "tinh_trang": "Đang cập nhật",
-            "luot_xem": 500,
-            "de_xuat": 10,
-            "sao": 15,
-            "chuong": []
         }
     }
 
@@ -117,11 +126,9 @@ if st.sidebar.button("⚙️ Chủ Sở Hữu (Ẩn)", use_container_width=True)
 # 4. GIAO DIỆN TRANG CHỦ (3 KHU VỰC VUỐT NGANG)
 # ==========================================
 def draw_novel_card(novel, key_prefix):
-    """Hàm vẽ thẻ truyện gồm Ảnh Bìa và Nút bấm Tên Truyện"""
     st.image(novel["bia"], use_container_width=True)
     if st.button(f"{novel['ten']}", key=f"btn_{key_prefix}_{novel['id']}"):
         st.session_state.current_novel_id = novel['id']
-        # Tự động tăng lượt xem (nhảy số liệu) khi độc giả click vào truyện
         st.session_state.novels[novel['id']]["luot_xem"] += 1 
         st.session_state.page = 'read'
         st.rerun()
@@ -129,7 +136,6 @@ def draw_novel_card(novel, key_prefix):
 if st.session_state.page == 'home':
     st.title("Trang Chủ Đọc Truyện")
     
-    # Lọc truyện theo thể loại từ Sidebar
     tat_ca_truyen = list(st.session_state.novels.values())
     if chon_the_loai != "Tất cả":
         truyen_hien_thi = [t for t in tat_ca_truyen if chon_the_loai in t.get("the_loai", [])]
@@ -139,12 +145,8 @@ if st.session_state.page == 'home':
     if not truyen_hien_thi:
         st.info(f"Chưa có truyện nào thuộc thể loại '{chon_the_loai}'.")
     else:
-        # THUẬT TOÁN TỰ ĐỘNG PHÂN CHIA KHU VỰC DỰA TRÊN CHỈ SỐ ĐỘNG
-        # Khu 1: Sắp xếp theo số sao giảm dần
         top_sao = sorted(truyen_hien_thi, key=lambda x: x["sao"], reverse=True)
-        # Khu 2: Sắp xếp theo lượt đề xuất giảm dần
         top_dexuat = sorted(truyen_hien_thi, key=lambda x: x["de_xuat"], reverse=True)
-        # Khu 3: Mới Đăng (Lấy thứ tự ngược của danh sách gốc)
         moi_dang = list(reversed(truyen_hien_thi))
 
         # --- KHU 1 ---
@@ -158,7 +160,7 @@ if st.session_state.page == 'home':
         st.write("---")
 
         # --- KHU 2 ---
-        st.subheader("🔥 Truyện Được Đề Xuất Nhiều Nhất")
+        st.subheader("🔥 Truyện Được Đề Xuất")
         cols2 = st.columns(max(len(top_dexuat), 1))
         for idx, novel in enumerate(top_dexuat):
             with cols2[idx]:
@@ -188,7 +190,6 @@ elif st.session_state.page == 'read':
         
         st.button("⬅️ Quay lại Trang Chủ", on_click=lambda: st.session_state.update(page='home'))
         
-        # HIỂN THỊ THÔNG TIN TRUYỆN
         col_img, col_info = st.columns([1, 3])
         with col_img:
             st.image(novel["bia"], use_container_width=True)
@@ -201,7 +202,6 @@ elif st.session_state.page == 'read':
             
         st.divider()
 
-        # CƠ CHẾ KHÓA / MỞ QUẢNG CÁO
         is_unlocked = novel_id in st.session_state.unlocked_novels
         
         if not is_unlocked:
@@ -215,7 +215,6 @@ elif st.session_state.page == 'read':
                     time.sleep(1)
                     st.rerun()
         else:
-            # NỘI DUNG CHƯƠNG ĐÃ MỞ KHÓA
             if not novel["chuong"]:
                 st.info("Truyện này chưa có chương nào được đăng.")
             else:
@@ -228,26 +227,26 @@ elif st.session_state.page == 'read':
                 
                 st.divider()
                 
-                # NÚT TƯƠNG TÁC ĐỘNG (Gửi số liệu trực tiếp vào hệ thống)
                 st.write("**Bạn thấy chương này thế nào? Hãy ủng hộ tác giả nhé!**")
                 c_dexuat, c_sao = st.columns(2)
                 with c_dexuat:
                     if st.button("👍 Đề xuất truyện này (+1 Đề xuất)", use_container_width=True):
                         st.session_state.novels[novel_id]["de_xuat"] += 1
                         st.success("Đã cộng 1 Đề xuất! Số liệu Thống kê đã được cập nhật.")
-                        time.sleep(1)
-                        st.rerun() # F5 lại hệ thống để số liệu nhảy
+                        time.sleep(1); st.rerun()
                 with c_sao:
                     if st.button("⭐ Đánh giá 5 Sao (+5 Điểm)", use_container_width=True):
                         st.session_state.novels[novel_id]["sao"] += 5
                         st.success("Đã đánh giá 5 sao! Số liệu Thống kê đã được cập nhật.")
-                        time.sleep(1)
-                        st.rerun()
+                        time.sleep(1); st.rerun()
 
 # ==========================================
 # 6. GIAO DIỆN QUẢN LÝ (TRANG ẨN CHỦ SỞ HỮU)
 # ==========================================
 elif st.session_state.page == 'admin':
+    # Kích hoạt CSS riêng cho Admin
+    st.markdown('<div class="admin-mode"></div>', unsafe_allow_html=True)
+    
     if not st.session_state.is_admin:
         st.title("🔒 Khu Vực Đăng Truyện")
         pwd = st.text_input("Nhập mật khẩu (Pass: 971856):", type="password")
@@ -270,10 +269,11 @@ elif st.session_state.page == 'admin':
         selected_mng_id = st.selectbox("Chọn Truyện Để Thao Tác:", options=list(danh_sach_quan_ly.keys()), format_func=lambda x: danh_sach_quan_ly[x])
         
         st.write("---")
-        tab_sua, tab_chuong, tab_thongke = st.tabs(["📝 Sửa Truyện", "📋 Danh Sách Chương", "📊 Thống Kê (Nhảy số tự động)"])
+        tab_sua, tab_chuong, tab_thongke = st.tabs(["📝 Sửa Truyện", "📋 Danh Sách Chương", "📊 Thống Kê"])
 
-        # -------- TAB 1: SỬA TRUYỆN & TẢI ẢNH LÊN --------
+        # -------- TAB 1: SỬA TRUYỆN --------
         with tab_sua:
+            st.markdown('<div class="admin-mode">', unsafe_allow_html=True)
             if selected_mng_id == "new_novel":
                 st.subheader("Tạo Truyện Mới")
                 n_id = f"truyen_{int(time.time())}"
@@ -281,7 +281,6 @@ elif st.session_state.page == 'admin':
                 n_vanan = st.text_area("Văn Án:")
                 n_theloai = st.multiselect("Thể Loại:", danh_sach_the_loai_goc)
                 
-                # TẢI ẢNH KHI TẠO MỚI
                 upload_bia_moi = st.file_uploader("Tải ảnh bìa lên (PNG/JPG):", type=['png', 'jpg', 'jpeg'], key="upload_new")
                 b64_img = "https://via.placeholder.com/150x220?text=Bia+Moi"
                 if upload_bia_moi:
@@ -305,8 +304,7 @@ elif st.session_state.page == 'admin':
                 c_img, c_form = st.columns([1, 3])
                 with c_img:
                     st.image(edit_novel["bia"], use_container_width=True)
-                    # TÍNH NĂNG UPLOAD ẢNH BÌA TỪ MÁY
-                    upload_bia = st.file_uploader("Đổi ảnh bìa mới (PNG/JPG):", type=['png', 'jpg', 'jpeg'])
+                    upload_bia = st.file_uploader("Đổi ảnh bìa mới:", type=['png', 'jpg', 'jpeg'])
                     if upload_bia:
                         b64 = base64.b64encode(upload_bia.read()).decode()
                         st.session_state["temp_img"] = f"data:image/jpeg;base64,{b64}"
@@ -328,45 +326,89 @@ elif st.session_state.page == 'admin':
                         edit_novel["bia"] = st.session_state.pop("temp_img")
                     st.success("Đã cập nhật toàn bộ thông tin!")
                     time.sleep(1); st.rerun()
+            st.markdown('</div>', unsafe_allow_html=True)
 
-        # -------- TAB 2: DANH SÁCH CHƯƠNG & TỰ ĐỘNG TÁCH --------
+        # -------- TAB 2: QUẢN LÝ DANH SÁCH CHƯƠNG --------
         with tab_chuong:
+            st.markdown('<div class="admin-mode">', unsafe_allow_html=True)
             if selected_mng_id == "new_novel":
                 st.warning("Vui lòng tạo truyện ở Tab 'Sửa Truyện' trước khi thêm chương.")
             else:
                 mng_novel = st.session_state.novels[selected_mng_id]
-                st.subheader("Tự Động Tách Chương Hàng Loạt")
-                st.info("Dán toàn bộ nội dung text vào ô. Thuật toán sẽ dò chữ 'Chương 1', 'Chương 2'... để tách.")
                 
-                raw_text = st.text_area("Dán Text Truyện Gốc Vào Đây:", height=200)
-                if st.button("✂️ Bắt Đầu Tách Chương", type="primary"):
-                    if raw_text:
-                        parts = re.split(r'(Chương\s*\d+.*?\n)', raw_text, flags=re.IGNORECASE)
-                        new_chapters = []
-                        if len(parts) > 1:
-                            for i in range(1, len(parts), 2):
-                                title = parts[i].strip()
-                                content = parts[i+1].strip() if i+1 < len(parts) else ""
-                                new_chapters.append({"title": title, "content": content, "views": 0})
-                            mng_novel["chuong"].extend(new_chapters)
-                            st.success(f"🎉 Đã tách thành công {len(new_chapters)} chương!")
-                        else:
-                            st.error("Không tìm thấy cấu trúc 'Chương X' trong đoạn text.")
+                # NÚT THÊM CHƯƠNG NHƯ YÊU CẦU
+                if st.button("➕ Thêm Chương Mới", type="primary"):
+                    new_idx = len(mng_novel['chuong'])
+                    mng_novel['chuong'].append({"title": f"Chương {new_idx + 1}", "content": "", "views": 0})
+                    st.session_state.editing_chap_idx = f"{selected_mng_id}_{new_idx}"
+                    st.rerun()
+
+                with st.expander("✂️ Tự Động Tách Chương Hàng Loạt"):
+                    st.info("Dán toàn bộ nội dung text vào ô. Thuật toán sẽ dò chữ 'Chương 1', 'Chương 2'... để tách.")
+                    raw_text = st.text_area("Dán Text Truyện Gốc Vào Đây:", height=150)
+                    if st.button("Bắt Đầu Tách", type="primary"):
+                        if raw_text:
+                            parts = re.split(r'(Chương\s*\d+.*?\n)', raw_text, flags=re.IGNORECASE)
+                            new_chapters = []
+                            if len(parts) > 1:
+                                for i in range(1, len(parts), 2):
+                                    title = parts[i].strip()
+                                    content = parts[i+1].strip() if i+1 < len(parts) else ""
+                                    new_chapters.append({"title": title, "content": content, "views": 0})
+                                mng_novel["chuong"].extend(new_chapters)
+                                st.success(f"🎉 Đã tách thành công {len(new_chapters)} chương!")
+                                time.sleep(1); st.rerun()
+                            else:
+                                st.error("Không tìm thấy cấu trúc 'Chương X' trong đoạn text.")
                     
                 st.divider()
                 st.subheader(f"📋 Các chương hiện có ({len(mng_novel['chuong'])} chương)")
+                
+                # GIAO DIỆN HIỂN THỊ DẠNG DANH SÁCH CÓ NÚT EDIT/DELETE
                 for idx, c in enumerate(mng_novel['chuong']):
-                    with st.expander(f"{c['title']}"):
-                        st.text_area("Nội dung", value=c['content'], height=150, key=f"content_{selected_mng_id}_{idx}")
+                    # NẾU ĐANG BẤM SỬA CHƯƠNG NÀY -> HIỆN FORM NHẬP LIỆU
+                    if st.session_state.get("editing_chap_idx") == f"{selected_mng_id}_{idx}":
+                        with st.container(border=True):
+                            new_title = st.text_input("Tên chương", value=c['title'], key=f"edit_title_{idx}")
+                            new_content = st.text_area("Nội dung", value=c['content'], height=200, key=f"edit_content_{idx}")
+                            
+                            col_save, col_cancel = st.columns(2)
+                            with col_save:
+                                if st.button("💾 Lưu Chương", type="primary", use_container_width=True, key=f"save_{idx}"):
+                                    mng_novel['chuong'][idx]['title'] = new_title
+                                    mng_novel['chuong'][idx]['content'] = new_content
+                                    st.session_state.editing_chap_idx = None
+                                    st.success("Đã lưu chương thành công!")
+                                    time.sleep(0.5); st.rerun()
+                            with col_cancel:
+                                if st.button("❌ Hủy", use_container_width=True, key=f"cancel_{idx}"):
+                                    st.session_state.editing_chap_idx = None
+                                    st.rerun()
+                    
+                    # NẾU KHÔNG SỬA -> HIỆN DẠNG DANH SÁCH LIST
+                    else:
+                        with st.container(border=True):
+                            col_title, col_edit, col_del = st.columns([6, 2, 2])
+                            with col_title:
+                                st.markdown(f"**{c['title']}**")
+                            with col_edit:
+                                if st.button("📝 Sửa", use_container_width=True, key=f"btn_edit_{idx}"):
+                                    st.session_state.editing_chap_idx = f"{selected_mng_id}_{idx}"
+                                    st.rerun()
+                            with col_del:
+                                if st.button("🗑️ Xóa", use_container_width=True, key=f"btn_del_{idx}"):
+                                    mng_novel['chuong'].pop(idx)
+                                    st.success("Đã xóa chương!")
+                                    time.sleep(0.5); st.rerun()
+            st.markdown('</div>', unsafe_allow_html=True)
 
-        # -------- TAB 3: THỐNG KÊ CHI TIẾT (TỰ ĐỘNG NHẢY) --------
+        # -------- TAB 3: THỐNG KÊ CHI TIẾT --------
         with tab_thongke:
             if selected_mng_id == "new_novel":
                 st.warning("Vui lòng chọn một bộ truyện cụ thể.")
             else:
                 st_novel = st.session_state.novels[selected_mng_id]
                 st.subheader(f"📊 Báo cáo Thống Kê Động: {st_novel['ten']}")
-                st.info("Số liệu tại đây sẽ tự động nảy số mỗi khi độc giả tương tác ngoài trang chủ.")
                 
                 c_sum1, c_sum2, c_sum3 = st.columns(3)
                 c_sum1.metric("Tổng Người Đọc (Lượt xem)", st_novel["luot_xem"])
