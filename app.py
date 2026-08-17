@@ -6,81 +6,103 @@ import json
 import os
 
 # ==========================================
-# 1. CẤU HÌNH TRANG & CSS LINH HOẠT
+# 1. CẤU HÌNH TRANG & CSS BẤT TỬ (CHỐNG LỖI DARK MODE & FORM)
 # ==========================================
 st.set_page_config(page_title="Web Đọc Truyện", page_icon="📖", layout="wide")
 
 st.markdown("""
     <style>
-    /* Ép toàn bộ giao diện chính Sáng (Light Theme) để không bị lỗi chữ chìm vào nền */
-    .stApp { background-color: #f8f9fa !important; }
-    .stApp, .stApp p, .stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp h5, .stApp h6, .stApp span, .stApp div, .stApp label {
+    /* 1. ÉP NỀN SÁNG CHO TOÀN BỘ TRANG */
+    [data-testid="stAppViewContainer"], [data-testid="stHeader"] { 
+        background-color: #f4f6f9 !important; 
+    }
+    [data-testid="stSidebar"] { 
+        background-color: #ffffff !important; 
+        border-right: 1px solid #ddd !important; 
+    }
+    
+    /* 2. ÉP TẤT CẢ CHỮ THÀNH MÀU ĐEN (CHỐNG LỖI CHỮ TRẮNG TÀNG HÌNH) */
+    h1, h2, h3, h4, h5, h6, p, label, span, li { 
         color: #1a1a1a !important; 
     }
     
-    /* === FIX LỖI TÀNG HÌNH: ÉP THANH CÔNG CỤ & THANH BÊN SÁNG MÀU ĐỂ CHỮ ĐEN HIỆN RÕ === */
-    [data-testid="stSidebar"] { background-color: #ffffff !important; }
-    [data-testid="stHeader"] { background-color: #f8f9fa !important; }
-    
-    /* KHÔI PHỤC THIẾT KẾ NÚT BẤM CHUẨN (Sửa lỗi ô vuông đen cho Xem thêm & Thanh bên) */
-    .stButton > button {
-        background-color: #ffffff !important;
-        color: #1a1a1a !important;
-        border: 1px solid #cccccc !important;
-        border-radius: 6px !important;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.05) !important;
-    }
-    .stButton > button:hover {
-        border-color: #ff4b4b !important;
-        color: #ff4b4b !important;
+    /* Ngoại trừ: Chữ trong Nút Primary (Màu đỏ/xanh) phải giữ màu trắng */
+    button[kind="primary"], button[kind="primary"] * { 
+        color: #ffffff !important; 
     }
     
-    /* Làm sáng các ô nhập liệu trong form quản lý */
-    .stTextInput>div>div>input, .stTextArea>div>div>textarea, .stSelectbox>div>div>div {
+    /* 3. SỬA LỖI Ô NHẬP LIỆU TRONG ADMIN BỊ ĐEN/TÀNG HÌNH CHỮ */
+    /* Ép nền các ô nhập liệu thành màu trắng */
+    div[data-baseweb="input"] > div, 
+    div[data-baseweb="textarea"] > div, 
+    div[data-baseweb="select"] > div,
+    div[data-baseweb="base-input"] {
         background-color: #ffffff !important; 
-        color: #000000 !important; 
         border: 1px solid #cccccc !important;
     }
     
-    /* THIẾT KẾ RIÊNG CHO LƯỚI 6 CỘT TRANG CHỦ (Ảnh 2x3 & Chữ ...) */
-    div[data-testid="stHorizontalBlock"]:has(> div:nth-child(6)) [data-testid="column"] img {
-        border-radius: 6px;
-        object-fit: cover;
-        width: 100%;
-        aspect-ratio: 2 / 3; /* Ép tỷ lệ bìa chuẩn không bị méo */
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        margin-bottom: -10px; 
+    /* Ép chữ bên trong các ô nhập liệu thành màu đen */
+    div[data-baseweb="input"] input, 
+    div[data-baseweb="textarea"] textarea,
+    div[data-baseweb="select"] * {
+        color: #111111 !important;
+        -webkit-text-fill-color: #111111 !important; /* Bắt buộc để hiện chữ trên Chrome/Edge */
     }
     
-    /* Xóa nền nút bấm tên truyện để nó hòa vào trang web */
-    div[data-testid="stHorizontalBlock"]:has(> div:nth-child(6)) .stButton > button {
-        background: transparent !important;
+    /* CHỮA BỆNH ĐẶC TRỊ: Các ô bị KHÓA (Lượt xem, Đề xuất...) */
+    input:disabled, textarea:disabled {
+        background-color: #f0f2f6 !important;
+        color: #111111 !important;
+        -webkit-text-fill-color: #111111 !important;
+        opacity: 1 !important;
+    }
+
+    /* 4. ĐỊNH DẠNG ẢNH BÌA TRUYỆN 2x3 CHUẨN XÁC */
+    .novel-cover {
+        width: 100%;
+        aspect-ratio: 2 / 3;
+        object-fit: cover;
+        border-radius: 6px;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.15);
+        margin-bottom: 2px;
+    }
+
+    /* 5. HACK CSS: TÀNG HÌNH NÚT BẤM, ÉP CẮT CHỮ "..." NẾU DÀI */
+    div[data-testid="column"] button[kind="secondary"] {
+        background-color: transparent !important;
         border: none !important;
         box-shadow: none !important;
         padding: 5px 0 0 0 !important;
         min-height: 0 !important;
     }
-    
-    div[data-testid="stHorizontalBlock"]:has(> div:nth-child(6)) .stButton > button p {
-        text-align: left !important;
-        white-space: nowrap !important; /* Không cho chữ rớt dòng */
+    div[data-testid="column"] button[kind="secondary"] p {
+        white-space: nowrap !important; 
         overflow: hidden !important; 
-        text-overflow: ellipsis !important; /* Tự động cắt chữ bằng dấu ... */
+        text-overflow: ellipsis !important; 
         font-size: 13px !important;
-        font-weight: 600 !important;
-        color: #111111 !important;
+        font-weight: 700 !important;
+        text-align: left !important;
+        width: 100% !important;
+    }
+    div[data-testid="column"] button[kind="secondary"]:hover p {
+        color: #1f77b4 !important; 
+    }
+
+    /* Chỉ số thống kê bên dưới tên truyện */
+    .small-stats { 
+        font-size: 12px !important; 
+        color: #777777 !important; 
+        margin-top: -2px;
     }
     
-    div[data-testid="stHorizontalBlock"]:has(> div:nth-child(6)) .stButton > button:hover p {
-        color: #1f77b4 !important; /* Hover đổi màu xanh */
+    /* Ảnh bìa nhỏ xíu ở trang Admin/Xem thêm */
+    .admin-cover {
+        width: 45px; height: 65px; object-fit: cover; 
+        border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.3);
     }
-    
-    /* Text số sao/đề xuất nhỏ */
-    .small-stats { font-size: 12px; color: #777777; margin-top: 5px; }
     </style>
 """, unsafe_allow_html=True)
 
-# Ảnh bìa mặc định an toàn tuyệt đối
 DEFAULT_COVER = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAoAAAAKCAQAAAAnOwc2AAAAEUlEQVR42mO88Z8BAzAOZUEAhy8S9yVvD1sAAAAASUVORK5CYII="
 
 # ==========================================
@@ -89,14 +111,12 @@ DEFAULT_COVER = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAoAAAAKCAQAAAAnO
 DB_FILE = "database.json"
 
 def load_db():
-    """Tải dữ liệu từ file lưu trữ"""
     if os.path.exists(DB_FILE):
         try:
             with open(DB_FILE, "r", encoding="utf-8") as f:
                 return json.load(f)
         except Exception: pass
     
-    # Nếu chưa có file, tạo dữ liệu gốc mặc định
     return {
         "truyen_1": {
             "id": "truyen_1", "ten": "Xuyên Không Thành Hệ Thống Chống Lại Thế Giới", "bia": DEFAULT_COVER,
@@ -115,7 +135,6 @@ def load_db():
     }
 
 def save_db(data):
-    """Ghi đè dữ liệu mới nhất vào file để không bị mất khi F5"""
     with open(DB_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=4)
 
@@ -130,43 +149,34 @@ if "admin_selected_novel_id" not in st.session_state: st.session_state.admin_sel
 if "unlocked_novels" not in st.session_state: st.session_state.unlocked_novels = []
 if "editing_chap_idx" not in st.session_state: st.session_state.editing_chap_idx = None
 
-# TẢI DATABASE TỪ FILE (Để chia sẻ chung cho mọi độc giả)
 if "novels" not in st.session_state:
     st.session_state.novels = load_db()
 
-# Cập nhật DB Helper (Gọi hàm này mỗi khi có thay đổi)
-def update_db():
-    save_db(st.session_state.novels)
+def update_db(): save_db(st.session_state.novels)
 
 for k, v in st.session_state.novels.items():
     if "hien_thi_trang_chu" not in v: v["hien_thi_trang_chu"] = True
-    if "via.placeholder.com" in v["bia"]: v["bia"] = DEFAULT_COVER
 
 # ==========================================
-# 4. THANH BÊN (SIDEBAR) & LỌC THỂ LOẠI
+# 4. THANH BÊN (SIDEBAR)
 # ==========================================
 danh_sach_the_loai_goc = ["Ngôn Tình", "Đam Mỹ", "Xuyên Không", "Hệ Thống", "Cao H", "Xuyên Sách", "Đô Thị", "Sủng"]
-
 st.sidebar.title("📚 Danh Mục")
 chon_the_loai = st.sidebar.radio("Chọn thể loại:", ["Tất cả"] + danh_sach_the_loai_goc)
 
 st.sidebar.divider()
 if st.sidebar.button("🏠 Trang Chủ", use_container_width=True):
-    st.session_state.page = 'home'
-    st.session_state.view_more_category = None
-    st.rerun()
-
+    st.session_state.page = 'home'; st.session_state.view_more_category = None; st.rerun()
 if st.sidebar.button("⚙️ Chủ Sở Hữu (Ẩn)", use_container_width=True):
-    st.session_state.page = 'admin'
-    st.rerun()
+    st.session_state.page = 'admin'; st.rerun()
 
 # ==========================================
-# 5. GIAO DIỆN TRANG CHỦ & DANH SÁCH (XEM THÊM)
+# 5. TRANG CHỦ & XEM THÊM
 # ==========================================
 def click_novel(novel_id):
     st.session_state.current_novel_id = novel_id
     st.session_state.novels[novel_id]["luot_xem"] += 1 
-    update_db() # LƯU DATABASE: Đã tăng view
+    update_db() 
     st.session_state.page = 'read'
     st.rerun()
 
@@ -179,7 +189,6 @@ if st.session_state.page == 'home':
     top_dexuat = sorted(truyen_hien_thi, key=lambda x: x["de_xuat"], reverse=True)
     moi_dang = list(reversed(truyen_hien_thi))
 
-    # ---- TAB: XEM THÊM (DANH SÁCH) ----
     if st.session_state.view_more_category:
         st.button("⬅️ Quay lại Trang Chủ", on_click=lambda: st.session_state.update(view_more_category=None))
         cat_name = st.session_state.view_more_category
@@ -187,16 +196,11 @@ if st.session_state.page == 'home':
         list_to_show = top_sao if cat_name == "Top 5 Sao" else (top_dexuat if cat_name == "Top Đề Xuất" else moi_dang)
         
         c1, c2, c3, c4 = st.columns([0.5, 4.5, 3, 2])
-        c1.markdown("**Bìa**")
-        c2.markdown("**Tên Truyện**")
-        c3.markdown("**Thể Loại & Lượt Xem**")
-        c4.markdown("**Đánh Giá**")
+        c1.markdown("**Bìa**"); c2.markdown("**Tên Truyện**"); c3.markdown("**Thể Loại & Lượt Xem**"); c4.markdown("**Đánh Giá**")
         st.divider()
-        
         for n in list_to_show:
             c1, c2, c3, c4 = st.columns([0.5, 4.5, 3, 2])
-            with c1:
-                st.markdown(f'<img src="{n["bia"]}" style="width:45px; height:65px; object-fit:cover; border-radius:4px; box-shadow:0 1px 3px rgba(0,0,0,0.3);">', unsafe_allow_html=True)
+            with c1: st.markdown(f'<img src="{n["bia"]}" class="admin-cover">', unsafe_allow_html=True)
             with c2:
                 if st.button(n['ten'], key=f"list_{n['id']}", use_container_width=True): click_novel(n['id'])
             with c3:
@@ -207,11 +211,9 @@ if st.session_state.page == 'home':
                 st.caption(f"👍 {n['de_xuat']} đề xuất")
             st.write("---")
             
-    # ---- TAB: TRANG CHỦ (LƯỚI 6 CỘT) ----
     else:
         st.title("Trang Chủ Đọc Truyện")
-        if not truyen_hien_thi:
-            st.info(f"Chưa có truyện nào thuộc danh mục '{chon_the_loai}'.")
+        if not truyen_hien_thi: st.info(f"Chưa có truyện nào thuộc danh mục '{chon_the_loai}'.")
         else:
             def render_grid_section(title, novels_list, cat_name, icon_stat):
                 col_title, col_space, col_btn = st.columns([7, 1, 2])
@@ -227,16 +229,14 @@ if st.session_state.page == 'home':
                         if i + j < len(novels_12):
                             n = novels_12[i+j]
                             with cols[j]:
-                                st.image(n["bia"])
+                                st.markdown(f'<img src="{n["bia"]}" class="novel-cover">', unsafe_allow_html=True)
                                 if st.button(n['ten'], key=f"card_{cat_name}_{n['id']}", use_container_width=True): 
                                     click_novel(n['id'])
                                 
-                                if icon_stat == "sao": 
-                                    st.markdown(f"<div class='small-stats'>⭐ {n['sao']} điểm</div>", unsafe_allow_html=True)
-                                elif icon_stat == "dexuat": 
-                                    st.markdown(f"<div class='small-stats'>👍 {n['de_xuat']} đề xuất</div>", unsafe_allow_html=True)
-                                else: 
-                                    st.markdown(f"<div class='small-stats' style='color:#0066cc;font-weight:bold;'>🆕 Mới đăng</div>", unsafe_allow_html=True)
+                                if icon_stat == "sao": st.markdown(f"<div class='small-stats'>⭐ {n['sao']} điểm</div>", unsafe_allow_html=True)
+                                elif icon_stat == "dexuat": st.markdown(f"<div class='small-stats'>👍 {n['de_xuat']} đề xuất</div>", unsafe_allow_html=True)
+                                else: st.markdown(f"<div class='small-stats' style='color:#0066cc;font-weight:bold;'>🆕 Mới đăng</div>", unsafe_allow_html=True)
+                    st.write("") 
 
             render_grid_section("⭐ Truyện 5 Sao", top_sao, "Top 5 Sao", "sao")
             st.write("---")
@@ -245,7 +245,7 @@ if st.session_state.page == 'home':
             render_grid_section("🆕 Truyện Mới Đăng", moi_dang, "Truyện Mới", "moi")
 
 # ==========================================
-# 6. GIAO DIỆN CHI TIẾT & ĐỌC TRUYỆN
+# 6. GIAO DIỆN ĐỌC TRUYỆN CHI TIẾT
 # ==========================================
 elif st.session_state.page == 'read':
     novel_id = st.session_state.current_novel_id
@@ -256,8 +256,7 @@ elif st.session_state.page == 'read':
         st.button("⬅️ Quay lại Trang Chủ", on_click=lambda: st.session_state.update(page='home'))
         
         col_img, col_info = st.columns([1, 4])
-        with col_img: 
-            st.markdown(f'<img src="{novel["bia"]}" style="width:100%; border-radius:6px; box-shadow:0 2px 5px rgba(0,0,0,0.2);">', unsafe_allow_html=True)
+        with col_img: st.markdown(f'<img src="{novel["bia"]}" style="width:100%; border-radius:6px; box-shadow:0 2px 5px rgba(0,0,0,0.2);">', unsafe_allow_html=True)
         with col_info:
             st.title(novel["ten"])
             st.markdown(f"**Tình trạng:** {novel['tinh_trang']} | **Lượt xem:** {novel['luot_xem']}")
@@ -287,16 +286,14 @@ elif st.session_state.page == 'read':
                 
                 c_dexuat, c_sao = st.columns(2)
                 if c_dexuat.button("👍 Đề xuất truyện này (+1)", use_container_width=True):
-                    st.session_state.novels[novel_id]["de_xuat"] += 1
-                    update_db() # LƯU DATABASE
+                    st.session_state.novels[novel_id]["de_xuat"] += 1; update_db()
                     st.success("Cộng 1 Đề xuất!"); time.sleep(1); st.rerun()
                 if c_sao.button("⭐ Đánh giá 5 Sao (+5)", use_container_width=True):
-                    st.session_state.novels[novel_id]["sao"] += 5
-                    update_db() # LƯU DATABASE
+                    st.session_state.novels[novel_id]["sao"] += 5; update_db()
                     st.success("Cộng 5 Điểm Sao!"); time.sleep(1); st.rerun()
 
 # ==========================================
-# 7. GIAO DIỆN QUẢN LÝ TÁC GIẢ
+# 7. QUẢN TRỊ VIÊN (ADMIN)
 # ==========================================
 elif st.session_state.page == 'admin':
     if not st.session_state.is_admin:
@@ -323,7 +320,7 @@ elif st.session_state.page == 'admin':
             
             for n_id, n_data in reversed(list(st.session_state.novels.items())):
                 c1, c2, c3, c4 = st.columns([0.5, 4.5, 3, 2])
-                with c1: st.markdown(f'<img src="{n_data["bia"]}" style="width:45px; height:65px; object-fit:cover; border-radius:4px; box-shadow:0 1px 3px rgba(0,0,0,0.3);">', unsafe_allow_html=True)
+                with c1: st.markdown(f'<img src="{n_data["bia"]}" class="admin-cover">', unsafe_allow_html=True)
                 with c2:
                     st.markdown(f"**{n_data['ten']}**")
                     st.caption(f"👁️ {n_data['luot_xem']}  |  {len(n_data['chuong'])} chương")
@@ -361,8 +358,7 @@ elif st.session_state.page == 'admin':
                                 "bia": b64_img, "hien_thi_trang_chu": False,
                                 "tinh_trang": "Đang cập nhật", "luot_xem": 0, "de_xuat": 0, "sao": 0, "chuong": []
                             }
-                            update_db() # LƯU DATABASE
-                            st.success("Tạo nháp thành công!")
+                            update_db(); st.success("Tạo nháp thành công!")
                             st.session_state.admin_selected_novel_id = None; time.sleep(1); st.rerun()
                 else:
                     edit_novel = st.session_state.novels[selected_mng_id]
@@ -378,16 +374,10 @@ elif st.session_state.page == 'admin':
                         st.markdown("### 🌐 Quản lý Hiển thị")
                         if edit_novel.get("hien_thi_trang_chu"):
                             st.success("🟢 Truyện này ĐANG HIỆN trên Trang Chủ")
-                            if st.button("🚫 Gỡ Khỏi Trang Chủ (Ẩn đi)"): 
-                                edit_novel["hien_thi_trang_chu"] = False
-                                update_db() # LƯU DATABASE
-                                st.rerun()
+                            if st.button("🚫 Gỡ Khỏi Trang Chủ (Ẩn đi)"): edit_novel["hien_thi_trang_chu"] = False; update_db(); st.rerun()
                         else:
                             st.warning("🔴 Truyện này ĐANG ẨN (Bản nháp)")
-                            if st.button("🚀 Thêm Vào Trang Chủ", type="primary"): 
-                                edit_novel["hien_thi_trang_chu"] = True
-                                update_db() # LƯU DATABASE
-                                st.rerun()
+                            if st.button("🚀 Thêm Vào Trang Chủ", type="primary"): edit_novel["hien_thi_trang_chu"] = True; update_db(); st.rerun()
                                 
                         st.divider()
                         edit_novel["ten"] = st.text_input("Tên truyện:", value=edit_novel["ten"])
@@ -402,8 +392,7 @@ elif st.session_state.page == 'admin':
                     edit_novel["van_an"] = st.text_area("Văn án:", value=edit_novel["van_an"], height=150)
                     if st.button("💾 Lưu Thay Đổi Cấu Hình", type="primary"):
                         if "temp_img" in st.session_state: edit_novel["bia"] = st.session_state.pop("temp_img")
-                        update_db() # LƯU DATABASE
-                        st.success("Đã cập nhật!"); time.sleep(1); st.rerun()
+                        update_db(); st.success("Đã cập nhật!"); time.sleep(1); st.rerun()
 
             with tab_chuong:
                 if selected_mng_id == "new_novel":
@@ -414,8 +403,7 @@ elif st.session_state.page == 'admin':
                     if st.button("➕ Thêm Chương Mới", type="primary"):
                         new_idx = len(mng_novel['chuong'])
                         mng_novel['chuong'].append({"title": f"Chương {new_idx + 1}", "content": "", "views": 0})
-                        update_db() # LƯU DATABASE
-                        st.session_state.editing_chap_idx = f"{selected_mng_id}_{new_idx}"; st.rerun()
+                        update_db(); st.session_state.editing_chap_idx = f"{selected_mng_id}_{new_idx}"; st.rerun()
 
                     with st.expander("✂️ Tự Động Tách Chương Hàng Loạt"):
                         raw_text = st.text_area("Dán Text Truyện Gốc Vào Đây:", height=150)
@@ -423,8 +411,7 @@ elif st.session_state.page == 'admin':
                             parts = re.split(r'(Chương\s*\d+.*?\n)', raw_text, flags=re.IGNORECASE)
                             if len(parts) > 1:
                                 new_chapters = [{"title": parts[i].strip(), "content": parts[i+1].strip() if i+1 < len(parts) else "", "views": 0} for i in range(1, len(parts), 2)]
-                                mng_novel["chuong"].extend(new_chapters)
-                                update_db() # LƯU DATABASE
+                                mng_novel["chuong"].extend(new_chapters); update_db()
                                 st.success(f"Đã tách {len(new_chapters)} chương!"); time.sleep(1); st.rerun()
                             else: st.error("Không tìm thấy cấu trúc 'Chương X'.")
                         
@@ -440,8 +427,7 @@ elif st.session_state.page == 'admin':
                                 if col_save.button("💾 Lưu Chương", type="primary", use_container_width=True, key=f"save_{idx}"):
                                     mng_novel['chuong'][idx]['title'] = new_title
                                     mng_novel['chuong'][idx]['content'] = new_content
-                                    st.session_state.editing_chap_idx = None
-                                    update_db() # LƯU DATABASE
+                                    st.session_state.editing_chap_idx = None; update_db()
                                     st.success("Đã lưu!"); time.sleep(0.5); st.rerun()
                                 if col_cancel.button("❌ Hủy", use_container_width=True, key=f"cancel_{idx}"):
                                     st.session_state.editing_chap_idx = None; st.rerun()
@@ -452,9 +438,7 @@ elif st.session_state.page == 'admin':
                                 if col_edit.button("📝 Sửa", use_container_width=True, key=f"btn_edit_{idx}"):
                                     st.session_state.editing_chap_idx = f"{selected_mng_id}_{idx}"; st.rerun()
                                 if col_del.button("🗑️ Xóa", use_container_width=True, key=f"btn_del_{idx}"):
-                                    mng_novel['chuong'].pop(idx)
-                                    update_db() # LƯU DATABASE
-                                    st.rerun()
+                                    mng_novel['chuong'].pop(idx); update_db(); st.rerun()
 
             with tab_thongke:
                 if selected_mng_id != "new_novel":
