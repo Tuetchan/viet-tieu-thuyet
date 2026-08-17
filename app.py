@@ -6,17 +6,21 @@ import json
 import os
 
 # ==========================================
-# 1. CẤU HÌNH TRANG & CSS (SỬA LỖI Ô VUÔNG ĐEN)
+# 1. CẤU HÌNH TRANG & CSS LINH HOẠT
 # ==========================================
 st.set_page_config(page_title="Web Đọc Truyện", page_icon="📖", layout="wide")
 
 st.markdown("""
     <style>
-    /* Ép toàn bộ giao diện Sáng (Light Theme) để không bị lỗi chữ chìm vào nền */
+    /* Ép toàn bộ giao diện chính Sáng (Light Theme) để không bị lỗi chữ chìm vào nền */
     .stApp { background-color: #f8f9fa !important; }
     .stApp, .stApp p, .stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp h5, .stApp h6, .stApp span, .stApp div, .stApp label {
         color: #1a1a1a !important; 
     }
+    
+    /* === FIX LỖI TÀNG HÌNH: ÉP THANH CÔNG CỤ & THANH BÊN SÁNG MÀU ĐỂ CHỮ ĐEN HIỆN RÕ === */
+    [data-testid="stSidebar"] { background-color: #ffffff !important; }
+    [data-testid="stHeader"] { background-color: #f8f9fa !important; }
     
     /* KHÔI PHỤC THIẾT KẾ NÚT BẤM CHUẨN (Sửa lỗi ô vuông đen cho Xem thêm & Thanh bên) */
     .stButton > button {
@@ -76,7 +80,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# Ảnh xám mặc định
+# Ảnh bìa mặc định an toàn tuyệt đối
 DEFAULT_COVER = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAoAAAAKCAQAAAAnOwc2AAAAEUlEQVR42mO88Z8BAzAOZUEAhy8S9yVvD1sAAAAASUVORK5CYII="
 
 # ==========================================
@@ -133,6 +137,10 @@ if "novels" not in st.session_state:
 # Cập nhật DB Helper (Gọi hàm này mỗi khi có thay đổi)
 def update_db():
     save_db(st.session_state.novels)
+
+for k, v in st.session_state.novels.items():
+    if "hien_thi_trang_chu" not in v: v["hien_thi_trang_chu"] = True
+    if "via.placeholder.com" in v["bia"]: v["bia"] = DEFAULT_COVER
 
 # ==========================================
 # 4. THANH BÊN (SIDEBAR) & LỌC THỂ LOẠI
