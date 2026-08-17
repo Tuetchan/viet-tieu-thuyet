@@ -6,58 +6,68 @@ import json
 import os
 
 # ==========================================
-# 1. CẤU HÌNH TRANG & CSS (CHỈ CĂN CHỈNH BỐ CỤC)
+# 1. CẤU HÌNH TRANG & CSS (CẮT CHỮ TRUẨN, KHÔNG ÉP MÀU NỀN)
 # ==========================================
 st.set_page_config(page_title="Web Đọc Truyện", page_icon="📖", layout="wide")
 
 st.markdown("""
     <style>
-    /* BỎ TOÀN BỘ CÁC ĐOẠN ÉP MÀU NỀN & MÀU CHỮ ĐỂ TRÁNH LỖI XUNG ĐỘT THEME */
+    /* BỎ HOÀN TOÀN LỆNH ÉP MÀU NỀN - ĐỂ HỆ THỐNG TỰ QUYẾT ĐỊNH SÁNG/TỐI */
 
     /* ========================================== */
-    /* CSS CHO ẢNH BÌA TRANG CHỦ (TỶ LỆ CHUẨN 2x3)*/
+    /* 1. CHUẨN HÓA ẢNH BÌA 2x3 */
     /* ========================================== */
     .novel-cover {
         width: 100%;
-        aspect-ratio: 2 / 3; /* Ép tỷ lệ bìa không bị lùn hay méo */
+        aspect-ratio: 2 / 3; /* Ép tỷ lệ bìa chuẩn */
         object-fit: cover;
-        border-radius: 8px;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.2);
-        margin-bottom: 5px;
+        border-radius: 6px;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+        margin-bottom: 2px;
     }
 
     /* ========================================== */
-    /* HACK CSS: NÚT TÊN TRUYỆN TRONG SUỐT & CẮT "..." */
+    /* 2. CHỮA BỆNH RỚT DÒNG - ÉP CẮT CHỮ "..."   */
     /* ========================================== */
-    div[data-testid="column"] button[kind="secondary"] {
-        background: transparent !important;
+    
+    /* Ẩn viền và nền của nút bấm dưới ảnh */
+    div[data-testid="column"] button {
+        background-color: transparent !important;
         border: none !important;
         box-shadow: none !important;
-        padding: 0 !important;
-        min-height: 0 !important;
-    }
-    div[data-testid="column"] button[kind="secondary"] p {
-        white-space: nowrap !important; /* Không cho chữ rớt dòng */
-        overflow: hidden !important; 
-        text-overflow: ellipsis !important; /* Tự động thêm ... */
-        font-size: 14px !important;
-        font-weight: 700 !important;
-        text-align: center !important;
+        padding: 5px 0 0 0 !important;
         width: 100% !important;
-        margin: 0 !important;
-        display: block !important;
-    }
-    div[data-testid="column"] button[kind="secondary"]:hover p {
-        color: #ff4b4b !important; /* Đổi màu đỏ khi trỏ chuột */
+        display: block !important; /* Cực kỳ quan trọng: Phá vỡ cấu trúc gốc của Streamlit */
     }
 
-    /* Chỉ số thống kê bên dưới tên truyện */
+    /* Ép tất cả các thẻ chữ bên trong nút phải nằm ngang và cắt "..." */
+    div[data-testid="column"] button * {
+        white-space: nowrap !important;       /* Bắt buộc nằm trên 1 dòng */
+        overflow: hidden !important;          /* Giấu phần chữ thừa */
+        text-overflow: ellipsis !important;   /* Hiện dấu ... */
+        display: block !important;            /* Cực kỳ quan trọng */
+        width: 100% !important;
+        font-size: 13.5px !important;
+        font-weight: 700 !important;
+        text-align: left !important;          /* Căn trái giống Ảnh 1 của bạn */
+    }
+
+    /* Đổi màu đỏ khi trỏ chuột vào tên truyện */
+    div[data-testid="column"] button:hover * {
+        color: #ff4b4b !important;
+    }
+
+    /* ========================================== */
+    /* 3. TEXT THỐNG KÊ NHỎ BÊN DƯỚI              */
+    /* ========================================== */
     .small-stats { 
-        font-size: 12px !important; 
-        opacity: 0.7; /* Làm mờ đi một chút để nhường nổi bật cho tên truyện */
-        text-align: center;
-        margin-top: -3px;
-        margin-bottom: 15px;
+        font-size: 11.5px !important; 
+        opacity: 0.6; 
+        text-align: left !important;
+        margin-top: 2px;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
     }
     
     /* Ảnh bìa nhỏ xíu ở trang Admin/Xem thêm */
@@ -68,7 +78,6 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# Ảnh xám mặc định (Phòng hờ mạng bị lỗi tải ảnh)
 DEFAULT_COVER = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAoAAAAKCAQAAAAnOwc2AAAAEUlEQVR42mO88Z8BAzAOZUEAhy8S9yVvD1sAAAAASUVORK5CYII="
 
 # ==========================================
@@ -120,6 +129,7 @@ if "novels" not in st.session_state:
 
 def update_db(): save_db(st.session_state.novels)
 
+# Cứu dữ liệu cũ phòng lỗi
 for k, v in st.session_state.novels.items():
     if "hien_thi_trang_chu" not in v: v["hien_thi_trang_chu"] = True
 
@@ -129,7 +139,6 @@ for k, v in st.session_state.novels.items():
 danh_sach_the_loai_goc = ["Ngôn Tình", "Đam Mỹ", "Xuyên Không", "Hệ Thống", "Cao H", "Xuyên Sách", "Đô Thị", "Sủng"]
 st.sidebar.title("📚 Danh Mục")
 chon_the_loai = st.sidebar.radio("Chọn thể loại:", ["Tất cả"] + danh_sach_the_loai_goc)
-
 st.sidebar.divider()
 if st.sidebar.button("🏠 Trang Chủ", use_container_width=True):
     st.session_state.page = 'home'; st.session_state.view_more_category = None; st.rerun()
@@ -178,7 +187,7 @@ if st.session_state.page == 'home':
                 st.caption(f"👍 {n['de_xuat']} đề xuất")
             st.write("---")
             
-    # --- TRANG CHỦ (LƯỚI 6 CỘT) ---
+    # --- TRANG CHỦ LƯỚI 6 CỘT ---
     else:
         st.title("Trang Chủ Đọc Truyện")
         if not truyen_hien_thi: st.info(f"Chưa có truyện nào thuộc danh mục '{chon_the_loai}'.")
@@ -190,7 +199,7 @@ if st.session_state.page == 'home':
                     if st.button("Xem thêm >", use_container_width=True, key=f"more_{cat_name}"):
                         st.session_state.view_more_category = cat_name; st.rerun()
                 
-                # Cắt 12 truyện (Vẽ thành 2 hàng, mỗi hàng 6 truyện)
+                # Cắt 12 truyện (vẽ thành 2 hàng, mỗi hàng 6 truyện)
                 novels_12 = novels_list[:12]
                 for i in range(0, len(novels_12), 6):
                     cols = st.columns(6) 
@@ -201,7 +210,7 @@ if st.session_state.page == 'home':
                                 # ẢNH BÌA
                                 st.markdown(f'<img src="{n["bia"]}" class="novel-cover">', unsafe_allow_html=True)
                                 
-                                # NÚT TÊN TRUYỆN
+                                # NÚT TÊN TRUYỆN (Sẽ bị css ở trên ép thành 1 dòng có dấu ...)
                                 if st.button(n['ten'], key=f"card_{cat_name}_{n['id']}", use_container_width=True): 
                                     click_novel(n['id'])
                                 
@@ -209,7 +218,7 @@ if st.session_state.page == 'home':
                                 if icon_stat == "sao": st.markdown(f"<div class='small-stats'>⭐ {n['sao']} điểm</div>", unsafe_allow_html=True)
                                 elif icon_stat == "dexuat": st.markdown(f"<div class='small-stats'>👍 {n['de_xuat']} đề xuất</div>", unsafe_allow_html=True)
                                 else: st.markdown(f"<div class='small-stats' style='color:#0066cc;font-weight:bold;'>🆕 Mới đăng</div>", unsafe_allow_html=True)
-                    st.write("") 
+                    st.write("") # Cách hàng
 
             render_grid_section("⭐ Truyện 5 Sao", top_sao, "Top 5 Sao", "sao")
             st.write("---")
