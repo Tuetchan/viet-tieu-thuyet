@@ -171,7 +171,7 @@ def batch_worker(chap_keys_list, api_keys, model_choice, novel_data_dict, trans_
 # 3. THANH BÊN (SIDEBAR) - HIỂN THỊ CÔNG KHAI
 # ==========================================
 st.sidebar.title("📚 Danh Mục")
-the_loai = ["Tất cả", "Ngôn Tình", "Đam Mỹ", "Xuyên Không", "Hệ Thống"]
+the_loai = ["Tất cả", "Ngôn Tình", "Đam Mỹ", "Xuyên Không", "Hệ Thống","Cao H","Xuyên Sách","Đô Thị"]
 chon_the_loai = st.sidebar.radio("Chọn thể loại:", the_loai)
 
 st.sidebar.divider()
