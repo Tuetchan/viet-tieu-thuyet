@@ -6,13 +6,13 @@ import json
 import os
 
 # ==========================================
-# 1. CẤU HÌNH TRANG & CSS (THÍCH ỨNG 100% SÁNG/TỐI)
+# 1. CẤU HÌNH TRANG & CSS (SỬA LỖI Ô VUÔNG ĐEN, THÍCH ỨNG SÁNG/TỐI)
 # ==========================================
 st.set_page_config(page_title="Web Đọc Truyện", page_icon="📖", layout="wide")
 
 st.markdown("""
     <style>
-    /* BỎ TOÀN BỘ CÁC ĐOẠN ÉP MÀU NỀN & MÀU CHỮ ĐỂ TRÁNH LỖI XUNG ĐỘT THEME */
+    /* BỎ ÉP MÀU NỀN & MÀU CHỮ: Để Streamlit tự động đẹp theo chế độ Sáng/Tối của máy tính */
 
     /* ========================================== */
     /* CSS CHO ẢNH BÌA TRANG CHỦ (TỶ LỆ CHUẨN 2x3)*/
@@ -22,7 +22,7 @@ st.markdown("""
         aspect-ratio: 2 / 3; /* Ép tỷ lệ bìa không bị lùn hay méo */
         object-fit: cover;
         border-radius: 8px;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+        box-shadow: 0 4px 6px rgba(0,0,0,0.3);
         margin-bottom: 5px;
     }
 
@@ -62,13 +62,13 @@ st.markdown("""
     
     /* Ảnh bìa nhỏ xíu ở trang Admin/Xem thêm */
     .admin-cover {
-        width: 45px; height: 65px; object-fit: cover; 
-        border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+        width: 50px; height: 75px; object-fit: cover; 
+        border-radius: 4px; box-shadow: 0 2px 4px rgba(0,0,0,0.2);
     }
     </style>
 """, unsafe_allow_html=True)
 
-# Ảnh xám mặc định (Phòng hờ mạng bị lỗi tải ảnh)
+# Ảnh xám mặc định
 DEFAULT_COVER = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAoAAAAKCAQAAAAnOwc2AAAAEUlEQVR42mO88Z8BAzAOZUEAhy8S9yVvD1sAAAAASUVORK5CYII="
 
 # ==========================================
@@ -162,11 +162,11 @@ if st.session_state.page == 'home':
         st.title(f"📖 Danh sách: {cat_name}")
         list_to_show = top_sao if cat_name == "Top 5 Sao" else (top_dexuat if cat_name == "Top Đề Xuất" else moi_dang)
         
-        c1, c2, c3, c4 = st.columns([0.5, 4.5, 3, 2])
+        c1, c2, c3, c4 = st.columns([1, 4, 3, 2])
         c1.markdown("**Bìa**"); c2.markdown("**Tên Truyện**"); c3.markdown("**Thể Loại & Lượt Xem**"); c4.markdown("**Đánh Giá**")
         st.divider()
         for n in list_to_show:
-            c1, c2, c3, c4 = st.columns([0.5, 4.5, 3, 2])
+            c1, c2, c3, c4 = st.columns([1, 4, 3, 2])
             with c1: st.markdown(f'<img src="{n["bia"]}" class="admin-cover">', unsafe_allow_html=True)
             with c2:
                 if st.button(n['ten'], key=f"list_{n['id']}", use_container_width=True): click_novel(n['id'])
@@ -178,7 +178,7 @@ if st.session_state.page == 'home':
                 st.caption(f"👍 {n['de_xuat']} đề xuất")
             st.write("---")
             
-    # --- TRANG CHỦ (LƯỚI 6 CỘT) ---
+    # --- TRANG CHỦ (LƯỚI 3 CỘT X 2 HÀNG) ---
     else:
         st.title("Trang Chủ Đọc Truyện")
         if not truyen_hien_thi: st.info(f"Chưa có truyện nào thuộc danh mục '{chon_the_loai}'.")
@@ -190,22 +190,25 @@ if st.session_state.page == 'home':
                     if st.button("Xem thêm >", use_container_width=True, key=f"more_{cat_name}"):
                         st.session_state.view_more_category = cat_name; st.rerun()
                 
-                # Cắt 12 truyện (Vẽ thành 2 hàng, mỗi hàng 6 truyện)
-                novels_12 = novels_list[:12]
-                for i in range(0, len(novels_12), 6):
-                    cols = st.columns(6) 
-                    for j in range(6):
-                        if i + j < len(novels_12):
-                            n = novels_12[i+j]
+                # Cắt 6 truyện (Vẽ thành 2 hàng, mỗi hàng 3 truyện)
+                novels_6 = novels_list[:6]
+                for i in range(0, len(novels_6), 3):
+                    cols = st.columns(3) # TẠO ĐÚNG 3 CỘT 
+                    for j in range(3):
+                        if i + j < len(novels_6):
+                            n = novels_6[i+j]
                             with cols[j]:
+                                # ẢNH BÌA
                                 st.markdown(f'<img src="{n["bia"]}" class="novel-cover">', unsafe_allow_html=True)
+                                
+                                # NÚT TÊN TRUYỆN
                                 if st.button(n['ten'], key=f"card_{cat_name}_{n['id']}", use_container_width=True): 
                                     click_novel(n['id'])
                                 
+                                # THỐNG KÊ
                                 if icon_stat == "sao": st.markdown(f"<div class='small-stats'>⭐ {n['sao']} điểm</div>", unsafe_allow_html=True)
                                 elif icon_stat == "dexuat": st.markdown(f"<div class='small-stats'>👍 {n['de_xuat']} đề xuất</div>", unsafe_allow_html=True)
                                 else: st.markdown(f"<div class='small-stats' style='color:#0066cc;font-weight:bold;'>🆕 Mới đăng</div>", unsafe_allow_html=True)
-                    st.write("") 
 
             render_grid_section("⭐ Truyện 5 Sao", top_sao, "Top 5 Sao", "sao")
             st.write("---")
@@ -283,12 +286,12 @@ elif st.session_state.page == 'admin':
                 st.session_state.admin_selected_novel_id = "new_novel"; st.rerun()
             
             st.divider()
-            c1, c2, c3, c4 = st.columns([0.5, 4.5, 3, 2])
+            c1, c2, c3, c4 = st.columns([1, 4, 3, 2])
             c1.markdown("**Bìa**"); c2.markdown("**Tên Truyện & Thông tin**"); c3.markdown("**Trạng Thái**"); c4.markdown("**Hành Động**")
             st.write("---")
             
             for n_id, n_data in reversed(list(st.session_state.novels.items())):
-                c1, c2, c3, c4 = st.columns([0.5, 4.5, 3, 2])
+                c1, c2, c3, c4 = st.columns([1, 4, 3, 2])
                 with c1: st.markdown(f'<img src="{n_data["bia"]}" class="admin-cover">', unsafe_allow_html=True)
                 with c2:
                     st.markdown(f"**{n_data['ten']}**")
