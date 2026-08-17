@@ -4,89 +4,59 @@ import time
 import base64
 
 # ==========================================
-# 1. CẤU HÌNH TRANG & CSS BẢO VỆ GIAO DIỆN
+# 1. CẤU HÌNH TRANG & CSS LINH HOẠT THEO THEME MÁY TÍNH
 # ==========================================
 st.set_page_config(page_title="Web Đọc Truyện", page_icon="📖", layout="wide")
 
 st.markdown("""
     <style>
-    /* TRẢ LẠI GIAO DIỆN MẶC ĐỊNH CHO THANH BÊN VÀ NÚT BẤM (KHÔNG ÉP MÀU TOÀN TRANG NỮA) */
+    /* Bỏ ép màu cứng, cho phép web tự đổi Trắng/Đen theo cài đặt máy tính của độc giả */
     
-    /* ======================================================== */
-    /* CHỈ ÉP CSS CHO KHU VỰC THẺ TRUYỆN (10 CỘT VUỐT NGANG)    */
-    /* ======================================================== */
-    div[data-testid="stHorizontalBlock"]:has(> div:nth-child(10)) {
-        overflow-x: auto !important; 
-        flex-wrap: nowrap !important; 
-        gap: 12px !important; 
-        padding-bottom: 15px !important;
+    /* Làm đẹp nút bấm tên truyện và Tự động cắt chữ bằng dấu ... */
+    .stButton > button {
+        width: 100%;
+        border-radius: 6px;
     }
-    
-    /* Ép khung truyện Cố định: Nền Trắng tuyệt đối */
-    div[data-testid="stHorizontalBlock"]:has(> div:nth-child(10)) > div[data-testid="column"] {
-        width: 120px !important; 
-        min-width: 120px !important; 
-        max-width: 120px !important; 
-        flex: 0 0 auto !important;
-        background-color: #ffffff !important; /* Luôn là nền trắng */
-        border-radius: 8px !important; 
-        box-shadow: 0 2px 6px rgba(0,0,0,0.1) !important;
-        border: 1px solid #eaeaea !important; 
-        padding: 6px !important; 
-        text-align: center !important;
-    }
-    
-    /* Chỉnh Ảnh Bìa */
-    div[data-testid="stHorizontalBlock"]:has(> div:nth-child(10)) img {
-        border-radius: 4px !important; 
-        height: 160px !important; 
-        object-fit: cover !important; 
-        width: 100% !important; 
-        margin-bottom: 5px !important;
-    }
-    
-    /* Ép Chữ Tên Truyện: Màu Đen, Nằm Ngang, Dấu ... */
-    div[data-testid="stHorizontalBlock"]:has(> div:nth-child(10)) button {
-        width: 100% !important; 
-        border: none !important; 
-        background: transparent !important; 
-        padding: 0 !important; 
-        min-height: 22px !important;
-        display: block !important;
-    }
-    
-    div[data-testid="stHorizontalBlock"]:has(> div:nth-child(10)) button p {
-        color: #1a1a1a !important;  /* Chữ luôn màu Đen/Xám đậm để nổi trên nền trắng */
-        font-size: 13px !important; 
-        font-weight: bold !important;
-        white-space: nowrap !important; /* Ép chữ nằm ngang 1 dòng */
+    .stButton > button p {
+        white-space: nowrap !important; 
         overflow: hidden !important; 
-        text-overflow: ellipsis !important; /* Thêm dấu ... nếu dài */
+        text-overflow: ellipsis !important;
         width: 100% !important;
         margin: 0 !important;
-        display: block !important;
+        font-weight: bold !important;
+        font-size: 14px !important;
     }
     
-    div[data-testid="stHorizontalBlock"]:has(> div:nth-child(10)) button:hover p {
-        color: #ff4b4b !important; /* Chuột vào đổi màu đỏ */
+    /* Thiết kế cho thẻ truyện ngoài Trang Chủ */
+    [data-testid="column"] img {
+        border-radius: 6px;
+        object-fit: cover;
+        width: 100%;
+        height: 220px; /* Chiều cao cố định cho ảnh bìa (Chuẩn 2x3) */
+        margin-bottom: 5px;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.2);
     }
     
     /* Text số sao/đề xuất nhỏ */
     .small-stats { 
-        font-size: 11px !important; 
-        color: #666666 !important; 
+        font-size: 13px !important; 
+        opacity: 0.7; /* Làm mờ đi một chút để phân biệt với tên truyện */
         margin-top: 4px !important; 
-        white-space: nowrap !important; 
-        overflow: hidden !important; 
-        text-overflow: ellipsis !important;
+        text-align: center;
     }
     
-    /* Khung danh sách Admin */
-    .admin-thumb img { border-radius: 4px; height: 60px; object-fit: cover; width: 45px; }
+    /* Khung danh sách Admin và Tab Xem Thêm */
+    .list-thumb img { 
+        border-radius: 4px; 
+        height: 80px !important; 
+        object-fit: cover; 
+        width: 55px !important; 
+        box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+    }
     </style>
 """, unsafe_allow_html=True)
 
-# Ảnh xám mặc định an toàn tuyệt đối (Đề phòng máy bị chặn link ảnh)
+# Ảnh bìa mặc định an toàn tuyệt đối
 DEFAULT_COVER = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAoAAAAKCAQAAAAnOwc2AAAAEUlEQVR42mO88Z8BAzAOZUEAhy8S9yVvD1sAAAAASUVORK5CYII="
 
 # ==========================================
@@ -160,57 +130,68 @@ if st.session_state.page == 'home':
     top_dexuat = sorted(truyen_hien_thi, key=lambda x: x["de_xuat"], reverse=True)
     moi_dang = list(reversed(truyen_hien_thi))
 
+    # ---- GIAO DIỆN XEM THÊM (CÓ ẢNH THUMBNAIL) ----
     if st.session_state.view_more_category:
         st.button("⬅️ Quay lại Trang Chủ", on_click=lambda: st.session_state.update(view_more_category=None))
         cat_name = st.session_state.view_more_category
         st.title(f"📖 Danh sách: {cat_name}")
         list_to_show = top_sao if cat_name == "Top 5 Sao" else (top_dexuat if cat_name == "Top Đề Xuất" else moi_dang)
         
-        c1, c2, c3, c4 = st.columns([5, 3, 2, 2])
-        c1.markdown("**Tên Truyện**")
-        c2.markdown("**Thể Loại**")
-        c3.markdown("**Lượt Xem**")
+        c1, c2, c3, c4 = st.columns([1, 4, 3, 2])
+        c1.markdown("**Bìa**")
+        c2.markdown("**Tên Truyện**")
+        c3.markdown("**Thể Loại & Lượt Xem**")
         c4.markdown("**Đánh Giá**")
         st.divider()
         for n in list_to_show:
-            c1, c2, c3, c4 = st.columns([5, 3, 2, 2])
+            c1, c2, c3, c4 = st.columns([1, 4, 3, 2])
             with c1:
+                st.markdown(f'<div class="list-thumb"><img src="{n["bia"]}"></div>', unsafe_allow_html=True)
+            with c2:
                 if st.button(n['ten'], key=f"list_{n['id']}", use_container_width=True): click_novel(n['id'])
-            c2.write(", ".join(n['the_loai']))
-            c3.write(f"👁️ {n['luot_xem']}")
-            c4.write(f"⭐ {n['sao']} / 👍 {n['de_xuat']}")
+            with c3:
+                st.write(", ".join(n['the_loai']))
+                st.caption(f"👁️ {n['luot_xem']} lượt xem")
+            with c4:
+                st.write(f"⭐ {n['sao']} điểm")
+                st.caption(f"👍 {n['de_xuat']} đề xuất")
+            st.write("---")
             
+    # ---- GIAO DIỆN TRANG CHỦ (LƯỚI 3 CỘT x 2 HÀNG) ----
     else:
         st.title("Trang Chủ Đọc Truyện")
         if not truyen_hien_thi:
             st.info(f"Chưa có truyện nào thuộc danh mục '{chon_the_loai}'.")
         else:
-            def render_horizontal_section(title, novels_list, cat_name, icon_stat):
+            def render_grid_section(title, novels_list, cat_name, icon_stat):
                 col_title, col_space, col_btn = st.columns([7, 1, 2])
-                with col_title:
-                    st.subheader(title)
+                with col_title: st.subheader(title)
                 with col_btn:
-                    # Nút Xem Thêm Đã được trả lại thiết kế mặc định để luôn nhìn rõ
                     if st.button("Xem thêm >", use_container_width=True, key=f"more_{cat_name}"):
                         st.session_state.view_more_category = cat_name; st.rerun()
                 
-                novels_10 = novels_list[:10]
-                cols = st.columns(10) # Bắt buộc tạo 10 cột để CSS vuốt ngang chạy đúng
-                for i in range(10):
-                    with cols[i]:
-                        if i < len(novels_10):
-                            n = novels_10[i]
-                            st.image(n["bia"])
-                            if st.button(n['ten'], key=f"card_{cat_name}_{n['id']}"): click_novel(n['id'])
-                            if icon_stat == "sao": st.markdown(f"<div class='small-stats'>⭐ {n['sao']} điểm</div>", unsafe_allow_html=True)
-                            elif icon_stat == "dexuat": st.markdown(f"<div class='small-stats'>👍 {n['de_xuat']} đề xuất</div>", unsafe_allow_html=True)
-                            else: st.markdown(f"<div class='small-stats'>🆕 Mới cập nhật</div>", unsafe_allow_html=True)
+                # Lấy tối đa 6 truyện (Để vẽ 2 hàng, mỗi hàng 3 cột)
+                novels_6 = novels_list[:6]
+                
+                # Vòng lặp vẽ lưới 3 cột
+                for i in range(0, len(novels_6), 3):
+                    cols = st.columns(3)
+                    for j in range(3):
+                        if i + j < len(novels_6):
+                            n = novels_6[i+j]
+                            with cols[j]:
+                                st.image(n["bia"])
+                                if st.button(n['ten'], key=f"card_{cat_name}_{n['id']}"): click_novel(n['id'])
+                                if icon_stat == "sao": st.markdown(f"<div class='small-stats'>⭐ {n['sao']} điểm</div>", unsafe_allow_html=True)
+                                elif icon_stat == "dexuat": st.markdown(f"<div class='small-stats'>👍 {n['de_xuat']} đề xuất</div>", unsafe_allow_html=True)
+                                else: st.markdown(f"<div class='small-stats'>🆕 Mới cập nhật</div>", unsafe_allow_html=True)
+                    st.write("") # Khoảng cách giữa các hàng
 
-            render_horizontal_section("⭐ Truyện 5 Sao", top_sao, "Top 5 Sao", "sao")
+            render_grid_section("⭐ Truyện 5 Sao", top_sao, "Top 5 Sao", "sao")
             st.write("---")
-            render_horizontal_section("🔥 Truyện Đề Xuất", top_dexuat, "Top Đề Xuất", "dexuat")
+            render_grid_section("🔥 Truyện Đề Xuất", top_dexuat, "Top Đề Xuất", "dexuat")
             st.write("---")
-            render_horizontal_section("🆕 Truyện Mới Đăng", moi_dang, "Truyện Mới", "moi")
+            render_grid_section("🆕 Truyện Mới Đăng", moi_dang, "Truyện Mới", "moi")
 
 # ==========================================
 # 5. GIAO DIỆN CHI TIẾT & ĐỌC TRUYỆN
@@ -286,7 +267,7 @@ elif st.session_state.page == 'admin':
             
             for n_id, n_data in reversed(list(st.session_state.novels.items())):
                 c1, c2, c3, c4 = st.columns([1, 5, 3, 2])
-                with c1: st.markdown(f'<div class="admin-thumb"><img src="{n_data["bia"]}"></div>', unsafe_allow_html=True)
+                with c1: st.markdown(f'<div class="list-thumb"><img src="{n_data["bia"]}"></div>', unsafe_allow_html=True)
                 with c2:
                     st.markdown(f"**{n_data['ten']}**")
                     st.caption(f"👁️ {n_data['luot_xem']}  |  {len(n_data['chuong'])} chương")
