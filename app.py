@@ -63,13 +63,18 @@ if "novel_data" not in st.session_state:
         "trans_prompt": "Bạn là một dịch giả chuyên nghiệp..."
     }
 
-# BẢO VỆ DỮ LIỆU CŨ: Tự động thêm "Kho chứa truyện" nếu bản lưu cũ chưa có
+# BẢO VỆ & NÂNG CẤP DỮ LIỆU CŨ (Tích hợp thêm Thể Loại)
 if "danh_sach_truyen" not in st.session_state.novel_data:
     st.session_state.novel_data["danh_sach_truyen"] = [
-        {"ten": "Xuyên Không Thành Hệ Thống", "khu_vuc": "5 Sao"},
-        {"ten": "Lạc Sủng", "khu_vuc": "5 Sao"},
-        {"ten": "Truyện Đề Xuất A", "khu_vuc": "Đề Xuất"}
+        {"ten": "Xuyên Không Thành Hệ Thống", "khu_vuc": "5 Sao", "the_loai": ["Xuyên Không", "Hệ Thống"]},
+        {"ten": "Lạc Sủng", "khu_vuc": "5 Sao", "the_loai": ["Ngôn Tình", "Đam Mỹ"]},
+        {"ten": "Truyện Đề Xuất A", "khu_vuc": "Đề Xuất", "the_loai": ["Đô Thị"]}
     ]
+else:
+    # Nâng cấp các truyện cũ nếu chưa có trường 'the_loai'
+    for t in st.session_state.novel_data["danh_sach_truyen"]:
+        if "the_loai" not in t:
+            t["the_loai"] = ["Ngôn Tình"] # Gắn tạm mặc định để không bị lỗi
 
 if "worker_running" not in st.session_state: st.session_state.worker_running = False
 
@@ -100,9 +105,10 @@ def scrape_web_chapter(url):
 # ==========================================
 # 3. THANH BÊN (SIDEBAR) 
 # ==========================================
+danh_sach_the_loai_goc = ["Ngôn Tình", "Đam Mỹ", "Xuyên Không", "Hệ Thống", "Cao H", "Xuyên Sách", "Đô Thị"]
+
 st.sidebar.title("📚 Danh Mục")
-the_loai = ["Tất cả", "Ngôn Tình", "Đam Mỹ", "Xuyên Không", "Hệ Thống","Cao H","Xuyên Sách","Đô Thị"]
-chon_the_loai = st.sidebar.radio("Chọn thể loại:", the_loai)
+chon_the_loai = st.sidebar.radio("Chọn thể loại:", ["Tất cả"] + danh_sach_the_loai_goc)
 
 st.sidebar.divider()
 if st.sidebar.button("🏠 Trang Chủ Đọc Truyện"):
@@ -119,39 +125,49 @@ if st.sidebar.button("⚙️ Khu Vực Quản Lý (Tác Giả)"):
 if st.session_state.page == 'home':
     st.title("Trang Chủ Đọc Truyện")
     
-    kho_truyen = st.session_state.novel_data["danh_sach_truyen"]
+    # KỸ THUẬT LỌC TRUYỆN THEO DANH MỤC
+    kho_truyen_goc = st.session_state.novel_data["danh_sach_truyen"]
+    
+    if chon_the_loai == "Tất cả":
+        kho_truyen_hien_thi = kho_truyen_goc
+    else:
+        # Chỉ lấy những truyện mà "the_loai" chứa danh mục độc giả đang chọn
+        kho_truyen_hien_thi = [t for t in kho_truyen_goc if chon_the_loai in t.get("the_loai", [])]
+        st.info(f"🔍 Đang lọc các truyện thuộc thể loại: **{chon_the_loai}**")
+        
+    if not kho_truyen_hien_thi:
+        st.warning(f"Hiện tại chưa có truyện nào thuộc thể loại '{chon_the_loai}'.")
     
     # --- KHU VỰC 1: TRUYỆN 5 SAO ---
-    st.subheader("⭐ Truyện 5 Sao Đáng Đọc")
-    truyen_5sao = [t for t in kho_truyen if t["khu_vuc"] == "5 Sao"]
-    
-    for i in range(0, len(truyen_5sao), 4):
-        cols = st.columns(4)
-        for j in range(4):
-            if i + j < len(truyen_5sao):
-                truyen = truyen_5sao[i+j]
-                with cols[j]:
-                    if st.button(f"📖 {truyen['ten']}\n\n⭐⭐⭐⭐⭐", use_container_width=True, key=f"btn_5sao_{i}_{j}"):
-                        st.session_state.current_novel = truyen['ten']
-                        st.session_state.page = 'read'
-                        st.rerun()
-
-    st.write("---")
+    truyen_5sao = [t for t in kho_truyen_hien_thi if t["khu_vuc"] == "5 Sao"]
+    if truyen_5sao:
+        st.subheader("⭐ Truyện 5 Sao Đáng Đọc")
+        for i in range(0, len(truyen_5sao), 4):
+            cols = st.columns(4)
+            for j in range(4):
+                if i + j < len(truyen_5sao):
+                    truyen = truyen_5sao[i+j]
+                    with cols[j]:
+                        if st.button(f"📖 {truyen['ten']}\n\n⭐⭐⭐⭐⭐", use_container_width=True, key=f"btn_5sao_{truyen['ten']}"):
+                            st.session_state.current_novel = truyen['ten']
+                            st.session_state.page = 'read'
+                            st.rerun()
+        st.write("---")
     
     # --- KHU VỰC 2: TRUYỆN ĐỀ XUẤT ---
-    st.subheader("🔥 Truyện Đề Xuất")
-    truyen_dexuat = [t for t in kho_truyen if t["khu_vuc"] == "Đề Xuất"]
-    
-    for i in range(0, len(truyen_dexuat), 4):
-        cols = st.columns(4)
-        for j in range(4):
-            if i + j < len(truyen_dexuat):
-                truyen = truyen_dexuat[i+j]
-                with cols[j]:
-                    if st.button(f"📖 {truyen['ten']}\n\n🔥 Hot", use_container_width=True, key=f"btn_dx_{i}_{j}"):
-                        st.session_state.current_novel = truyen['ten']
-                        st.session_state.page = 'read'
-                        st.rerun()
+    truyen_dexuat = [t for t in kho_truyen_hien_thi if t["khu_vuc"] == "Đề Xuất"]
+    if truyen_dexuat:
+        st.subheader("🔥 Truyện Đề Xuất")
+        for i in range(0, len(truyen_dexuat), 4):
+            cols = st.columns(4)
+            for j in range(4):
+                if i + j < len(truyen_dexuat):
+                    truyen = truyen_dexuat[i+j]
+                    with cols[j]:
+                        if st.button(f"📖 {truyen['ten']}\n\n🔥 Hot", use_container_width=True, key=f"btn_dx_{truyen['ten']}"):
+                            st.session_state.current_novel = truyen['ten']
+                            st.session_state.page = 'read'
+                            st.rerun()
 
 # ==========================================
 # 5. GIAO DIỆN ĐỌC TRUYỆN CHI TIẾT
@@ -181,7 +197,7 @@ elif st.session_state.page == 'read':
         if st.button("⭐ Đánh giá 5 Sao"): st.success("Đã gửi đánh giá 5 sao!")
 
 # ==========================================
-# 6. GIAO DIỆN QUẢN LÝ (ĐÃ LIÊN KẾT TRANG CHỦ)
+# 6. GIAO DIỆN QUẢN LÝ
 # ==========================================
 elif st.session_state.page == 'admin':
     if not st.session_state.authenticated:
@@ -210,30 +226,33 @@ elif st.session_state.page == 'admin':
         # --- TAB: QUẢN LÝ VÀ ĐĂNG TRUYỆN MỚI ---
         with tab_sua:
             st.subheader("➕ Đăng Truyện Mới Lên Trang Chủ")
-            st.info("Nhập thông tin bên dưới, truyện sẽ tự động xuất hiện ngoài Trang Chủ độc giả.")
             
-            c_ten, c_khu = st.columns([3, 1])
+            c_ten, c_khu = st.columns([2, 1])
             with c_ten: ten_truyen_moi = st.text_input("Tên truyện muốn đăng:")
             with c_khu: khu_vuc_dang = st.selectbox("Hiển thị ở khu vực:", ["5 Sao", "Đề Xuất"])
             
+            # Thêm ô chọn Thể loại (có thể chọn nhiều thẻ cùng lúc)
+            the_loai_dang = st.multiselect("Gắn Thẻ Thể Loại:", danh_sach_the_loai_goc)
+            
             if st.button("Phát Hành Truyện Này", type="primary"):
-                if ten_truyen_moi.strip() != "":
-                    # Đưa truyện mới vào kho chứa
+                if ten_truyen_moi.strip() != "" and len(the_loai_dang) > 0:
                     st.session_state.novel_data["danh_sach_truyen"].append({
                         "ten": ten_truyen_moi.strip(),
-                        "khu_vuc": khu_vuc_dang
+                        "khu_vuc": khu_vuc_dang,
+                        "the_loai": the_loai_dang
                     })
                     st.success(f"🎉 Đã đẩy truyện '{ten_truyen_moi}' ra Trang Chủ!")
                     time.sleep(1)
                     st.rerun()
                 else:
-                    st.error("Vui lòng nhập tên truyện!")
+                    st.error("Vui lòng nhập tên truyện và chọn ít nhất 1 thể loại!")
             
             st.divider()
             
             st.subheader("📋 Danh sách các truyện đang hiển thị")
             for idx, truyen in enumerate(st.session_state.novel_data["danh_sach_truyen"]):
-                st.write(f"- **{truyen['ten']}** (Đang nằm ở khu: {truyen['khu_vuc']})")
+                tag_str = ", ".join(truyen.get("the_loai", []))
+                st.write(f"- **{truyen['ten']}** | Khu: {truyen['khu_vuc']} | Thể loại: [{tag_str}]")
 
         with tab_cao:
             st.write("Giao diện cào truyện...")
