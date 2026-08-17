@@ -4,26 +4,16 @@ import time
 import base64
 
 # ==========================================
-# 1. CẤU HÌNH TRANG & CSS KHẮC PHỤC LỖI
+# 1. CẤU HÌNH TRANG & CSS BẢO VỆ GIAO DIỆN
 # ==========================================
 st.set_page_config(page_title="Web Đọc Truyện", page_icon="📖", layout="wide")
 
 st.markdown("""
     <style>
-    /* Ép nền sáng và chữ tối màu */
-    .stApp { background-color: #f5f6f8; }
-    .stApp, .stApp p, .stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp h5, .stApp h6, .stApp span, .stApp div, .stApp label {
-        color: #1a1a1a !important;
-    }
-    
-    .stTextInput>div>div>input, .stTextArea>div>div>textarea, .stSelectbox>div>div>div {
-        background-color: #ffffff !important;
-        color: #000000 !important;
-        border: 1px solid #cccccc !important;
-    }
+    /* TRẢ LẠI GIAO DIỆN MẶC ĐỊNH CHO THANH BÊN VÀ NÚT BẤM (KHÔNG ÉP MÀU TOÀN TRANG NỮA) */
     
     /* ======================================================== */
-    /* KHẮC PHỤC LỖI CHỮ BỊ DỌC & BÓP NGHẸT CỘT                 */
+    /* CHỈ ÉP CSS CHO KHU VỰC THẺ TRUYỆN (10 CỘT VUỐT NGANG)    */
     /* ======================================================== */
     div[data-testid="stHorizontalBlock"]:has(> div:nth-child(10)) {
         overflow-x: auto !important; 
@@ -32,15 +22,15 @@ st.markdown("""
         padding-bottom: 15px !important;
     }
     
-    /* Ép kích thước khung truyện CỐ ĐỊNH */
+    /* Ép khung truyện Cố định: Nền Trắng tuyệt đối */
     div[data-testid="stHorizontalBlock"]:has(> div:nth-child(10)) > div[data-testid="column"] {
         width: 120px !important; 
         min-width: 120px !important; 
         max-width: 120px !important; 
         flex: 0 0 auto !important;
-        background-color: #ffffff !important; 
+        background-color: #ffffff !important; /* Luôn là nền trắng */
         border-radius: 8px !important; 
-        box-shadow: 0 2px 6px rgba(0,0,0,0.08) !important;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.1) !important;
         border: 1px solid #eaeaea !important; 
         padding: 6px !important; 
         text-align: center !important;
@@ -55,7 +45,7 @@ st.markdown("""
         margin-bottom: 5px !important;
     }
     
-    /* KHẮC PHỤC CHỮ TÊN TRUYỆN */
+    /* Ép Chữ Tên Truyện: Màu Đen, Nằm Ngang, Dấu ... */
     div[data-testid="stHorizontalBlock"]:has(> div:nth-child(10)) button {
         width: 100% !important; 
         border: none !important; 
@@ -66,34 +56,37 @@ st.markdown("""
     }
     
     div[data-testid="stHorizontalBlock"]:has(> div:nth-child(10)) button p {
-        color: #222 !important; 
+        color: #1a1a1a !important;  /* Chữ luôn màu Đen/Xám đậm để nổi trên nền trắng */
         font-size: 13px !important; 
         font-weight: bold !important;
-        white-space: nowrap !important; /* KHÔNG CHO PHÉP XUỐNG DÒNG */
+        white-space: nowrap !important; /* Ép chữ nằm ngang 1 dòng */
         overflow: hidden !important; 
-        text-overflow: ellipsis !important; /* THÊM DẤU ... NẾU DÀI QUÁ */
+        text-overflow: ellipsis !important; /* Thêm dấu ... nếu dài */
         width: 100% !important;
         margin: 0 !important;
         display: block !important;
     }
     
     div[data-testid="stHorizontalBlock"]:has(> div:nth-child(10)) button:hover p {
-        color: #ff4b4b !important;
+        color: #ff4b4b !important; /* Chuột vào đổi màu đỏ */
     }
     
     /* Text số sao/đề xuất nhỏ */
     .small-stats { 
-        font-size: 11px !important; color: #777 !important; margin-top: 4px !important; 
-        white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important;
+        font-size: 11px !important; 
+        color: #666666 !important; 
+        margin-top: 4px !important; 
+        white-space: nowrap !important; 
+        overflow: hidden !important; 
+        text-overflow: ellipsis !important;
     }
     
     /* Khung danh sách Admin */
     .admin-thumb img { border-radius: 4px; height: 60px; object-fit: cover; width: 45px; }
-    .stButton > button { border-radius: 6px; }
     </style>
 """, unsafe_allow_html=True)
 
-# Ảnh xám mặc định an toàn tuyệt đối (Base64)
+# Ảnh xám mặc định an toàn tuyệt đối (Đề phòng máy bị chặn link ảnh)
 DEFAULT_COVER = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAoAAAAKCAQAAAAnOwc2AAAAEUlEQVR42mO88Z8BAzAOZUEAhy8S9yVvD1sAAAAASUVORK5CYII="
 
 # ==========================================
@@ -127,7 +120,6 @@ if "novels" not in st.session_state:
         }
     }
 
-# BẢN VÁ LỖI TỰ ĐỘNG: Sửa lại các link ảnh bị lỗi do mạng của lần chạy trước
 for k, v in st.session_state.novels.items():
     if "hien_thi_trang_chu" not in v: v["hien_thi_trang_chu"] = True
     if "via.placeholder.com" in v["bia"]: v["bia"] = DEFAULT_COVER
@@ -194,10 +186,13 @@ if st.session_state.page == 'home':
             st.info(f"Chưa có truyện nào thuộc danh mục '{chon_the_loai}'.")
         else:
             def render_horizontal_section(title, novels_list, cat_name, icon_stat):
-                col_title, col_btn = st.columns([8, 2])
-                col_title.subheader(title)
-                if col_btn.button("Xem thêm >", key=f"more_{cat_name}"):
-                    st.session_state.view_more_category = cat_name; st.rerun()
+                col_title, col_space, col_btn = st.columns([7, 1, 2])
+                with col_title:
+                    st.subheader(title)
+                with col_btn:
+                    # Nút Xem Thêm Đã được trả lại thiết kế mặc định để luôn nhìn rõ
+                    if st.button("Xem thêm >", use_container_width=True, key=f"more_{cat_name}"):
+                        st.session_state.view_more_category = cat_name; st.rerun()
                 
                 novels_10 = novels_list[:10]
                 cols = st.columns(10) # Bắt buộc tạo 10 cột để CSS vuốt ngang chạy đúng
