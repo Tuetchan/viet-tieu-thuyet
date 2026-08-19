@@ -242,7 +242,7 @@ elif st.session_state.page == 'read':
         if novel_id not in st.session_state.unlocked_novels:
             st.warning("🔒 Nội dung truyện đang bị khóa. Bạn cần xem quảng cáo để mở khóa toàn bộ chương.")
             with st.expander("👉 BẤM VÀO ĐÂY ĐỂ ĐỌC TRUYỆN", expanded=True):
-                st.markdown("[🛒 Xem Quảng Cáo Shopee (Mở tab mới)](https://shopee.vn)")
+                st.markdown("[🛒 Xem Quảng Cáo Shopee (Mở tab mới)](https://s.shopee.vn/6VNC17lmsy)")
                 if st.button("✅ Tôi đã xem xong, Mở Khóa Truyện!", type="primary"):
                     st.session_state.unlocked_novels.append(novel_id)
                     st.success("Mở khóa thành công! Đang tải chương..."); time.sleep(1); st.rerun()
