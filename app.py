@@ -1,3 +1,8 @@
+Đã rõ! Dưới đây là mã code đã được điều chỉnh lại theo đúng luồng hoạt động mà bạn mong muốn:
+ 1. **Mở khóa 1 lần cho toàn bộ truyện:** Độc giả chỉ cần bấm xem link Shopee ở lần đầu tiên mở truyện. Sau khi bấm "Bắt đầu xem", toàn bộ các chương sẽ được mở khóa. Các nút "Chương tiếp theo" hoặc "Chương trước" sẽ chuyển trang ngay lập tức mà không đòi hỏi xem lại link.
+ 2. **Đặt lại chỉ số:** Các chỉ số mặc định như lượt xem, đề xuất, điểm sao trong cơ sở dữ liệu mẫu đều được đưa về 0.
+Bạn hãy chép toàn bộ mã này đè lên file cũ nhé:
+```python
 import streamlit as st
 import re
 import time
@@ -6,29 +11,20 @@ import json
 import os
 
 # ==========================================
-# 1. CẤU HÌNH TRANG & CSS (CHỈ CĂN CHỈNH BỐ CỤC)
+# 1. CẤU HÌNH TRANG & CSS
 # ==========================================
 st.set_page_config(page_title="Web Đọc Truyện", page_icon="📖", layout="wide")
 
 st.markdown("""
     <style>
-    /* BỎ TOÀN BỘ CÁC ĐOẠN ÉP MÀU NỀN & MÀU CHỮ ĐỂ TRÁNH LỖI XUNG ĐỘT THEME */
-
-    /* ========================================== */
-    /* CSS CHO ẢNH BÌA TRANG CHỦ (TỶ LỆ CHUẨN 2x3)*/
-    /* ========================================== */
     .novel-cover {
         width: 100%;
-        aspect-ratio: 2 / 3; /* Ép tỷ lệ bìa không bị lùn hay méo */
+        aspect-ratio: 2 / 3;
         object-fit: cover;
         border-radius: 8px;
         box-shadow: 0 4px 6px rgba(0,0,0,0.2);
         margin-bottom: 5px;
     }
-
-    /* ========================================== */
-    /* HACK CSS: NÚT TÊN TRUYỆN TRONG SUỐT & CẮT "..." */
-    /* ========================================== */
     div[data-testid="column"] button[kind="secondary"] {
         background: transparent !important;
         border: none !important;
@@ -37,9 +33,9 @@ st.markdown("""
         min-height: 0 !important;
     }
     div[data-testid="column"] button[kind="secondary"] p {
-        white-space: nowrap !important; /* Không cho chữ rớt dòng */
+        white-space: nowrap !important;
         overflow: hidden !important; 
-        text-overflow: ellipsis !important; /* Tự động thêm ... */
+        text-overflow: ellipsis !important;
         font-size: 14px !important;
         font-weight: 700 !important;
         text-align: center !important;
@@ -48,19 +44,15 @@ st.markdown("""
         display: block !important;
     }
     div[data-testid="column"] button[kind="secondary"]:hover p {
-        color: #ff4b4b !important; /* Đổi màu đỏ khi trỏ chuột */
+        color: #ff4b4b !important;
     }
-
-    /* Chỉ số thống kê bên dưới tên truyện */
     .small-stats { 
         font-size: 12px !important; 
-        opacity: 0.7; /* Làm mờ đi một chút để nhường nổi bật cho tên truyện */
+        opacity: 0.7; 
         text-align: center;
         margin-top: -3px;
         margin-bottom: 15px;
     }
-    
-    /* Ảnh bìa nhỏ xíu ở trang Admin/Xem thêm */
     .admin-cover {
         width: 45px; height: 65px; object-fit: cover; 
         border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.3);
@@ -68,7 +60,6 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# Ảnh xám mặc định (Phòng hờ mạng bị lỗi tải ảnh)
 DEFAULT_COVER = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAoAAAAKCAQAAAAnOwc2AAAAEUlEQVR42mO88Z8BAzAOZUEAhy8S9yVvD1sAAAAASUVORK5CYII="
 
 # ==========================================
@@ -88,15 +79,18 @@ def load_db():
             "id": "truyen_1", "ten": "Xuyên Không Thành Hệ Thống Chống Lại Thế Giới", "bia": DEFAULT_COVER,
             "van_an": "Lâm Duyệt hoảng hốt khi thấy cơ thể thạch của mình đang phát sáng rực rỡ...",
             "the_loai": ["Xuyên Không", "Hệ Thống", "Đam Mỹ"], "tinh_trang": "Đang cập nhật", 
-            "luot_xem": 15200, "de_xuat": 1400, "sao": 250, "hien_thi_trang_chu": True,
-            "chuong": [{"title": "Chương 1: Bắt đầu", "content": "Nội dung chi tiết chương 1...", "views": 1500}]
+            "luot_xem": 0, "de_xuat": 0, "sao": 0, "hien_thi_trang_chu": True,
+            "chuong": [
+                {"title": "Chương 1: Bắt đầu", "content": "Nội dung chi tiết chương 1...", "views": 0},
+                {"title": "Chương 2: Thử thách mới", "content": "Nội dung chi tiết chương 2...", "views": 0}
+            ]
         },
         "truyen_2": {
             "id": "truyen_2", "ten": "Lạc Sủng Của Bạo Quân Chốn Hậu Cung", "bia": DEFAULT_COVER,
             "van_an": "Một câu chuyện ngôn tình đầy trắc trở...",
             "the_loai": ["Ngôn Tình", "Sủng"], "tinh_trang": "Hoàn thành", 
-            "luot_xem": 32000, "de_xuat": 5600, "sao": 850, "hien_thi_trang_chu": True,
-            "chuong": [{"title": "Chương 1: Gặp gỡ", "content": "Nội dung chương 1...", "views": 5000}]
+            "luot_xem": 0, "de_xuat": 0, "sao": 0, "hien_thi_trang_chu": True,
+            "chuong": [{"title": "Chương 1: Gặp gỡ", "content": "Nội dung chương 1...", "views": 0}]
         }
     }
 
@@ -112,8 +106,9 @@ if "current_novel_id" not in st.session_state: st.session_state.current_novel_id
 if "view_more_category" not in st.session_state: st.session_state.view_more_category = None
 if "is_admin" not in st.session_state: st.session_state.is_admin = False
 if "admin_selected_novel_id" not in st.session_state: st.session_state.admin_selected_novel_id = None
-if "unlocked_novels" not in st.session_state: st.session_state.unlocked_novels = []
 if "editing_chap_idx" not in st.session_state: st.session_state.editing_chap_idx = None
+if "unlocked_novels" not in st.session_state: st.session_state.unlocked_novels = []
+if "current_chapter_idx" not in st.session_state: st.session_state.current_chapter_idx = 0
 
 if "novels" not in st.session_state:
     st.session_state.novels = load_db()
@@ -142,6 +137,7 @@ if st.sidebar.button("⚙️ Chủ Sở Hữu (Ẩn)", use_container_width=True)
 def click_novel(novel_id):
     st.session_state.current_novel_id = novel_id
     st.session_state.novels[novel_id]["luot_xem"] += 1 
+    st.session_state.current_chapter_idx = 0
     update_db() 
     st.session_state.page = 'read'
     st.rerun()
@@ -155,7 +151,6 @@ if st.session_state.page == 'home':
     top_dexuat = sorted(truyen_hien_thi, key=lambda x: x["de_xuat"], reverse=True)
     moi_dang = list(reversed(truyen_hien_thi))
 
-    # --- TAB XEM THÊM ---
     if st.session_state.view_more_category:
         st.button("⬅️ Quay lại Trang Chủ", on_click=lambda: st.session_state.update(view_more_category=None))
         cat_name = st.session_state.view_more_category
@@ -178,7 +173,6 @@ if st.session_state.page == 'home':
                 st.caption(f"👍 {n['de_xuat']} đề xuất")
             st.write("---")
             
-    # --- TRANG CHỦ (LƯỚI 6 CỘT) ---
     else:
         st.title("Trang Chủ Đọc Truyện")
         if not truyen_hien_thi: st.info(f"Chưa có truyện nào thuộc danh mục '{chon_the_loai}'.")
@@ -190,7 +184,6 @@ if st.session_state.page == 'home':
                     if st.button("Xem thêm >", use_container_width=True, key=f"more_{cat_name}"):
                         st.session_state.view_more_category = cat_name; st.rerun()
                 
-                # Cắt 12 truyện (Vẽ thành 2 hàng, mỗi hàng 6 truyện)
                 novels_12 = novels_list[:12]
                 for i in range(0, len(novels_12), 6):
                     cols = st.columns(6) 
@@ -198,14 +191,10 @@ if st.session_state.page == 'home':
                         if i + j < len(novels_12):
                             n = novels_12[i+j]
                             with cols[j]:
-                                # ẢNH BÌA
                                 st.markdown(f'<img src="{n["bia"]}" class="novel-cover">', unsafe_allow_html=True)
-                                
-                                # NÚT TÊN TRUYỆN (Sẽ bị css tự động cắt chữ có dấu ...)
                                 if st.button(n['ten'], key=f"card_{cat_name}_{n['id']}", use_container_width=True): 
                                     click_novel(n['id'])
                                 
-                                # THỐNG KÊ
                                 if icon_stat == "sao": st.markdown(f"<div class='small-stats'>⭐ {n['sao']} điểm</div>", unsafe_allow_html=True)
                                 elif icon_stat == "dexuat": st.markdown(f"<div class='small-stats'>👍 {n['de_xuat']} đề xuất</div>", unsafe_allow_html=True)
                                 else: st.markdown(f"<div class='small-stats' style='color:#0066cc;font-weight:bold;'>🆕 Mới đăng</div>", unsafe_allow_html=True)
@@ -239,24 +228,57 @@ elif st.session_state.page == 'read':
             
         st.divider()
 
-        if novel_id not in st.session_state.unlocked_novels:
-            st.warning("🔒 Nội dung truyện đang bị khóa. Bạn cần xem quảng cáo để mở khóa toàn bộ chương.")
-            with st.expander("👉 BẤM VÀO ĐÂY ĐỂ ĐỌC TRUYỆN", expanded=True):
-                st.markdown("[🛒 Xem Quảng Cáo Shopee (Mở tab mới)](https://s.shopee.vn/6VNC17lmsy)")
-                if st.button("✅ Tôi đã xem xong, Mở Khóa Truyện!", type="primary"):
-                    st.session_state.unlocked_novels.append(novel_id)
-                    st.success("Mở khóa thành công! Đang tải chương..."); time.sleep(1); st.rerun()
+        if not novel["chuong"]: 
+            st.info("Truyện chưa có chương nào được đăng.")
         else:
-            if not novel["chuong"]: st.info("Truyện chưa có chương nào được đăng.")
+            # KIỂM TRA MỞ KHÓA TRUYỆN (Chỉ mở khóa 1 lần)
+            if novel_id not in st.session_state.unlocked_novels:
+                st.warning("🔒 Truyện đang bị khóa.")
+                with st.container(border=True):
+                    st.markdown("### Mở khóa nội dung")
+                    st.write("Vui lòng nhấn vào link bên dưới để xem, sau đó quay lại trang này nhấn nút bắt đầu.")
+                    st.markdown("[🛒 Xem Quảng Cáo Shopee (Mở tab mới)](https://s.shopee.vn/6VNC17lmsy)")
+                    
+                    st.write("---")
+                    if st.button("✅ Tôi đã xem xong, Bắt đầu xem!", type="primary"):
+                        st.session_state.unlocked_novels.append(novel_id)
+                        st.success("Mở khóa thành công! Đang tải chương..."); time.sleep(1); st.rerun()
             else:
+                # HIỂN THỊ NỘI DUNG SAU KHI MỞ KHÓA
                 danh_sach_ten_chuong = [c["title"] for c in novel["chuong"]]
-                chuong_chon = st.selectbox("📚 Chọn chương để đọc:", danh_sach_ten_chuong)
-                chuong_data = next(c for c in novel["chuong"] if c["title"] == chuong_chon)
+                
+                def on_chapter_change():
+                    st.session_state.current_chapter_idx = danh_sach_ten_chuong.index(st.session_state.chuong_chon_dropdown)
+                
+                chuong_chon = st.selectbox(
+                    "📚 Chọn chương để đọc:", 
+                    danh_sach_ten_chuong, 
+                    index=st.session_state.current_chapter_idx,
+                    key="chuong_chon_dropdown",
+                    on_change=on_chapter_change
+                )
+                
+                chuong_data = novel["chuong"][st.session_state.current_chapter_idx]
                 
                 st.markdown(f"### {chuong_data['title']}")
                 st.write(chuong_data['content'])
                 st.divider()
                 
+                # --- NÚT ĐIỀU HƯỚNG CHƯƠNG KÉP TỚI LUI ---
+                c_prev, c_space, c_next = st.columns([2, 4, 2])
+                
+                if st.session_state.current_chapter_idx > 0:
+                    if c_prev.button("⬅️ Chương Trước", use_container_width=True):
+                        st.session_state.current_chapter_idx -= 1
+                        st.rerun()
+                        
+                if st.session_state.current_chapter_idx < len(novel["chuong"]) - 1:
+                    if c_next.button("Chương Tiếp Theo ➡️", use_container_width=True):
+                        st.session_state.current_chapter_idx += 1
+                        st.rerun()
+
+                st.divider()
+                # --- NÚT ĐÁNH GIÁ TRUYỆN ---
                 c_dexuat, c_sao = st.columns(2)
                 if c_dexuat.button("👍 Đề xuất truyện này (+1)", use_container_width=True):
                     st.session_state.novels[novel_id]["de_xuat"] += 1; update_db()
@@ -271,7 +293,6 @@ elif st.session_state.page == 'read':
 elif st.session_state.page == 'admin':
     if not st.session_state.is_admin:
         st.title("🔒 Khu Vực Quản Trị")
-        # Đã thay đổi dòng bên dưới để ẩn mật khẩu gợi ý
         pwd = st.text_input("Nhập mật khẩu quản trị:", type="password") 
         if st.button("Mở Khóa"):
             if pwd == "971856": st.session_state.is_admin = True; st.rerun()
@@ -421,3 +442,5 @@ elif st.session_state.page == 'admin':
                     c_sum1.metric("Tổng Người Đọc", st_novel["luot_xem"])
                     c_sum2.metric("Số Đề Xuất", st_novel["de_xuat"])
                     c_sum3.metric("Tổng Điểm Sao", st_novel["sao"])
+
+```
