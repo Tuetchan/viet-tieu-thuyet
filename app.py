@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import re
 import time
 import base64
@@ -104,6 +105,7 @@ if "admin_selected_novel_id" not in st.session_state: st.session_state.admin_sel
 if "editing_chap_idx" not in st.session_state: st.session_state.editing_chap_idx = None
 if "unlocked_novels" not in st.session_state: st.session_state.unlocked_novels = []
 if "current_chapter_idx" not in st.session_state: st.session_state.current_chapter_idx = 0
+if "scroll_top_trigger" not in st.session_state: st.session_state.scroll_top_trigger = False
 
 if "novels" not in st.session_state:
     st.session_state.novels = load_db()
@@ -133,6 +135,7 @@ def click_novel(novel_id):
     st.session_state.current_novel_id = novel_id
     st.session_state.novels[novel_id]["luot_xem"] += 1 
     st.session_state.current_chapter_idx = 0
+    st.session_state.scroll_top_trigger = True
     update_db() 
     st.session_state.page = 'read'
     st.rerun()
@@ -214,7 +217,6 @@ elif st.session_state.page == 'read':
         
         # KIỂM TRA TRẠNG THÁI MỞ KHÓA
         if novel_id not in st.session_state.unlocked_novels:
-            # === NẾU CHƯA MỞ KHÓA: HIỆN VĂN ÁN VÀ YÊU CẦU XEM LINK ===
             col_img, col_info = st.columns([1, 4])
             with col_img: st.markdown(f'<img src="{novel["bia"]}" style="width:100%; border-radius:6px; box-shadow:0 2px 5px rgba(0,0,0,0.2);">', unsafe_allow_html=True)
             with col_info:
@@ -234,19 +236,34 @@ elif st.session_state.page == 'read':
                 st.write("---")
                 if st.button("✅ Tôi đã xem xong, Bắt đầu xem!", type="primary"):
                     st.session_state.unlocked_novels.append(novel_id)
+                    st.session_state.scroll_top_trigger = True
                     st.success("Mở khóa thành công! Đang tải chương..."); time.sleep(1); st.rerun()
         else:
-            # === NẾU ĐÃ MỞ KHÓA: ẨN VĂN ÁN, CHỈ HIỆN KHUNG ĐỌC CHƯƠNG ===
             if not novel["chuong"]: 
                 st.info("Truyện chưa có chương nào được đăng.")
             else:
-                # Hiện một tiêu đề nhỏ để biết đang đọc truyện nào
+                # ÉP CHẠY LÊN ĐẦU TRANG BẰNG JAVASCRIPT SAU KHI ĐỔI CHƯƠNG
+                if st.session_state.scroll_top_trigger:
+                    components.html(
+                        """
+                        <script>
+                            var main = window.parent.document.querySelector('.main');
+                            if (main) main.scrollTop = 0;
+                            var appView = window.parent.document.querySelector('[data-testid="stAppViewContainer"]');
+                            if (appView) appView.scrollTop = 0;
+                        </script>
+                        """,
+                        height=0
+                    )
+                    st.session_state.scroll_top_trigger = False
+
                 st.markdown(f"<h3 style='text-align: center; color: #888;'>{novel['ten']}</h3>", unsafe_allow_html=True)
                 
                 danh_sach_ten_chuong = [c["title"] for c in novel["chuong"]]
                 
                 def on_chapter_change():
                     st.session_state.current_chapter_idx = danh_sach_ten_chuong.index(st.session_state.chuong_chon_dropdown)
+                    st.session_state.scroll_top_trigger = True
                 
                 chuong_chon = st.selectbox(
                     "📚 Chọn chương:", 
@@ -270,12 +287,14 @@ elif st.session_state.page == 'read':
                 if st.session_state.current_chapter_idx > 0:
                     if c_prev.button("⬅️ Chương Trước", use_container_width=True):
                         st.session_state.current_chapter_idx -= 1
-                        st.rerun() # Rerun sẽ tự động đẩy trang cuộn lên trên cùng
+                        st.session_state.scroll_top_trigger = True
+                        st.rerun() 
                         
                 if st.session_state.current_chapter_idx < len(novel["chuong"]) - 1:
                     if c_next.button("Chương Tiếp Theo ➡️", use_container_width=True):
                         st.session_state.current_chapter_idx += 1
-                        st.rerun() # Rerun sẽ tự động đẩy trang cuộn lên trên cùng
+                        st.session_state.scroll_top_trigger = True
+                        st.rerun() 
 
                 st.divider()
                 # --- NÚT ĐÁNH GIÁ TRUYỆN ---
