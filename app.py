@@ -1,8 +1,3 @@
-Đã rõ! Dưới đây là mã code đã được điều chỉnh lại theo đúng luồng hoạt động mà bạn mong muốn:
- 1. **Mở khóa 1 lần cho toàn bộ truyện:** Độc giả chỉ cần bấm xem link Shopee ở lần đầu tiên mở truyện. Sau khi bấm "Bắt đầu xem", toàn bộ các chương sẽ được mở khóa. Các nút "Chương tiếp theo" hoặc "Chương trước" sẽ chuyển trang ngay lập tức mà không đòi hỏi xem lại link.
- 2. **Đặt lại chỉ số:** Các chỉ số mặc định như lượt xem, đề xuất, điểm sao trong cơ sở dữ liệu mẫu đều được đưa về 0.
-Bạn hãy chép toàn bộ mã này đè lên file cũ nhé:
-```python
 import streamlit as st
 import re
 import time
@@ -442,5 +437,3 @@ elif st.session_state.page == 'admin':
                     c_sum1.metric("Tổng Người Đọc", st_novel["luot_xem"])
                     c_sum2.metric("Số Đề Xuất", st_novel["de_xuat"])
                     c_sum3.metric("Tổng Điểm Sao", st_novel["sao"])
-
-```
