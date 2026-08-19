@@ -95,10 +95,20 @@ def save_db(data):
         json.dump(data, f, ensure_ascii=False, indent=4)
 
 # ==========================================
-# 3. KHỞI TẠO SESSION & TẢI DỮ LIỆU
+# 3. KHỞI TẠO SESSION & TẢI DỮ LIỆU BẰNG URL
 # ==========================================
-if "page" not in st.session_state: st.session_state.page = "home"
-if "current_novel_id" not in st.session_state: st.session_state.current_novel_id = ""
+# Quét URL xem có chứa ID truyện (link riêng) không
+query_params = st.query_params
+
+if "page" not in st.session_state: 
+    if "novel" in query_params:
+        st.session_state.page = "read"
+        st.session_state.current_novel_id = query_params["novel"]
+    else:
+        st.session_state.page = "home"
+        st.session_state.current_novel_id = ""
+
+if "current_novel_id" not in st.session_state: st.session_state.current_novel_id = query_params.get("novel", "")
 if "view_more_category" not in st.session_state: st.session_state.view_more_category = None
 if "is_admin" not in st.session_state: st.session_state.is_admin = False
 if "admin_selected_novel_id" not in st.session_state: st.session_state.admin_selected_novel_id = None
@@ -116,6 +126,12 @@ def update_db(): save_db(st.session_state.novels)
 for k, v in st.session_state.novels.items():
     if "hien_thi_trang_chu" not in v: v["hien_thi_trang_chu"] = True
 
+# Hàm điều hướng về trang chủ và xóa link truyện khỏi URL
+def go_home():
+    st.query_params.clear()
+    st.session_state.page = 'home'
+    st.session_state.view_more_category = None
+
 # ==========================================
 # 4. THANH BÊN (SIDEBAR)
 # ==========================================
@@ -125,15 +141,19 @@ chon_the_loai = st.sidebar.radio("Chọn thể loại:", ["Tất cả"] + danh_s
 
 st.sidebar.divider()
 if st.sidebar.button("🏠 Trang Chủ", use_container_width=True):
-    st.session_state.page = 'home'; st.session_state.view_more_category = None; st.rerun()
+    go_home()
+    st.rerun()
 if st.sidebar.button("⚙️ Chủ Sở Hữu (Ẩn)", use_container_width=True):
-    st.session_state.page = 'admin'; st.rerun()
+    st.session_state.page = 'admin'
+    st.query_params.clear()
+    st.rerun()
 
 # ==========================================
 # 5. TRANG CHỦ & XEM THÊM
 # ==========================================
 def click_novel(novel_id):
     st.session_state.current_novel_id = novel_id
+    st.query_params["novel"] = novel_id  # <--- THÊM ID VÀO THANH URL
     st.session_state.novels[novel_id]["luot_xem"] += 1 
     st.session_state.current_chapter_idx = 0
     st.session_state.scroll_up = True 
@@ -151,7 +171,7 @@ if st.session_state.page == 'home':
     moi_dang = list(reversed(truyen_hien_thi))
 
     if st.session_state.view_more_category:
-        st.button("⬅️ Quay lại Trang Chủ", on_click=lambda: st.session_state.update(view_more_category=None))
+        st.button("⬅️ Quay lại Trang Chủ", on_click=go_home)
         cat_name = st.session_state.view_more_category
         st.title(f"📖 Danh sách: {cat_name}")
         list_to_show = top_sao if cat_name == "Top 5 Sao" else (top_dexuat if cat_name == "Top Đề Xuất" else moi_dang)
@@ -212,10 +232,13 @@ elif st.session_state.page == 'read':
 
     novel_id = st.session_state.current_novel_id
     if novel_id not in st.session_state.novels:
-        st.error("Truyện không tồn tại."); st.button("Về Trang Chủ", on_click=lambda: st.session_state.update(page='home'))
+        st.error("Truyện không tồn tại.")
+        st.button("Về Trang Chủ", on_click=go_home)
     else:
         novel = st.session_state.novels[novel_id]
-        st.button("⬅️ Quay lại Trang Chủ", on_click=lambda: st.session_state.update(page='home'))
+        
+        # Thêm hiển thị Link Chia Sẻ ở đầu trang để copy cho tiện
+        st.button("⬅️ Quay lại Trang Chủ", on_click=go_home)
         
         # KIỂM TRA TRẠNG THÁI MỞ KHÓA
         if novel_id not in st.session_state.unlocked_novels:
@@ -232,7 +255,6 @@ elif st.session_state.page == 'read':
             st.warning("🔒 Nội dung truyện đang bị khóa.")
             
             with st.container(border=True):
-                # LUỒNG 2 BƯỚC: GIẤU NÚT "BẮT ĐẦU XEM" CHO TỚI KHI BẤM XEM LINK
                 if not st.session_state.clicked_ads:
                     st.markdown("### Yêu cầu mở khóa")
                     st.write("Vui lòng ấn nút lấy link bên dưới. Trang sẽ cung cấp link Shopee để bạn xem.")
@@ -247,7 +269,7 @@ elif st.session_state.page == 'read':
                     
                     if st.button("✅ Bắt đầu xem truyện!", type="primary"):
                         st.session_state.unlocked_novels.append(novel_id)
-                        st.session_state.clicked_ads = False # Reset lại cho lần sau
+                        st.session_state.clicked_ads = False 
                         st.session_state.scroll_up = True
                         st.success("Mở khóa thành công! Đang tải chương..."); time.sleep(1); st.rerun()
 
@@ -255,9 +277,7 @@ elif st.session_state.page == 'read':
             if not novel["chuong"]: 
                 st.info("Truyện chưa có chương nào được đăng.")
             else:
-                # ĐÁNH DẤU MỎ NEO Ở ĐẦU TRANG ĐỂ KÉO LÊN
                 st.markdown("<div id='top-of-chapter'></div>", unsafe_allow_html=True)
-
                 st.markdown(f"<h3 style='text-align: center; color: #888;'>{novel['ten']}</h3>", unsafe_allow_html=True)
                 
                 danh_sach_ten_chuong = [c["title"] for c in novel["chuong"]]
@@ -277,12 +297,10 @@ elif st.session_state.page == 'read':
                 st.divider()
                 chuong_data = novel["chuong"][st.session_state.current_chapter_idx]
                 
-                # HIỂN THỊ NỘI DUNG CHƯƠNG
                 st.markdown(f"## {chuong_data['title']}")
                 st.write(chuong_data['content'])
                 st.divider()
                 
-                # --- NÚT ĐIỀU HƯỚNG CHƯƠNG ---
                 c_prev, c_space, c_next = st.columns([2, 4, 2])
                 
                 if st.session_state.current_chapter_idx > 0:
@@ -298,7 +316,6 @@ elif st.session_state.page == 'read':
                         st.rerun() 
 
                 st.divider()
-                # --- NÚT ĐÁNH GIÁ TRUYỆN ---
                 c_dexuat, c_sao = st.columns(2)
                 if c_dexuat.button("👍 Đề xuất truyện này (+1)", use_container_width=True):
                     st.session_state.novels[novel_id]["de_xuat"] += 1; update_db()
@@ -307,13 +324,10 @@ elif st.session_state.page == 'read':
                     st.session_state.novels[novel_id]["sao"] += 5; update_db()
                     st.success("Cộng 5 Điểm Sao!"); time.sleep(1); st.rerun()
 
-                # ---- MÃ JAVASCRIPT HẸN GIỜ ĐẨY TRANG LÊN TRÊN CÙNG ----
-                # Phải để cuối cùng để đợi toàn bộ text render ra xong
                 if st.session_state.scroll_up:
                     components.html(
                         """
                         <script>
-                            // Set khoảng trễ 300ms để đợi Streamlit nạp toàn bộ lượng text khổng lồ
                             setTimeout(function() {
                                 var main = window.parent.document.querySelector('.main');
                                 if (main) { main.scrollTo({top: 0, behavior: 'instant'}); }
