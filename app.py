@@ -105,7 +105,7 @@ if "admin_selected_novel_id" not in st.session_state: st.session_state.admin_sel
 if "editing_chap_idx" not in st.session_state: st.session_state.editing_chap_idx = None
 if "unlocked_novels" not in st.session_state: st.session_state.unlocked_novels = []
 if "current_chapter_idx" not in st.session_state: st.session_state.current_chapter_idx = 0
-if "scroll_top_trigger" not in st.session_state: st.session_state.scroll_top_trigger = False
+if "scroll_up" not in st.session_state: st.session_state.scroll_up = False
 
 if "novels" not in st.session_state:
     st.session_state.novels = load_db()
@@ -135,7 +135,7 @@ def click_novel(novel_id):
     st.session_state.current_novel_id = novel_id
     st.session_state.novels[novel_id]["luot_xem"] += 1 
     st.session_state.current_chapter_idx = 0
-    st.session_state.scroll_top_trigger = True
+    st.session_state.scroll_up = True # Cuộn lên đầu khi chọn truyện mới
     update_db() 
     st.session_state.page = 'read'
     st.rerun()
@@ -208,6 +208,24 @@ if st.session_state.page == 'home':
 # 6. GIAO DIỆN ĐỌC TRUYỆN CHI TIẾT
 # ==========================================
 elif st.session_state.page == 'read':
+    # ---- MÃ JAVASCRIPT ĐẨY TRANG LÊN TRÊN CÙNG ----
+    if st.session_state.scroll_up:
+        components.html(
+            """
+            <script>
+                // Đẩy iframe và khung chứa Streamlit lên đầu
+                window.parent.scrollTo({top: 0, behavior: 'auto'});
+                var main = window.parent.document.querySelector('.main');
+                if (main) main.scrollTo({top: 0, behavior: 'auto'});
+                var appView = window.parent.document.querySelector('[data-testid="stAppViewContainer"]');
+                if (appView) appView.scrollTo({top: 0, behavior: 'auto'});
+            </script>
+            """,
+            height=0
+        )
+        st.session_state.scroll_up = False
+    # -----------------------------------------------
+
     novel_id = st.session_state.current_novel_id
     if novel_id not in st.session_state.novels:
         st.error("Truyện không tồn tại."); st.button("Về Trang Chủ", on_click=lambda: st.session_state.update(page='home'))
@@ -230,40 +248,32 @@ elif st.session_state.page == 'read':
             st.warning("🔒 Truyện đang bị khóa.")
             with st.container(border=True):
                 st.markdown("### Mở khóa nội dung")
-                st.write("Vui lòng nhấn vào link bên dưới để xem, sau đó quay lại trang này nhấn nút bắt đầu.")
-                st.markdown("[🛒 Xem Quảng Cáo Shopee (Mở tab mới)](https://s.shopee.vn/6VNC17lmsy)")
+                st.write("Vui lòng nhấn vào link bên dưới để xem quảng cáo Shopee. Sau đó đánh dấu vào ô xác nhận để hiện nút bắt đầu xem.")
+                
+                # HIỂN THỊ LINK
+                st.markdown("👉 [🛒 BẤM VÀO ĐÂY ĐỂ MỞ LINK SHOPEE (Mở tab mới)](https://s.shopee.vn/6VNC17lmsy)")
                 
                 st.write("---")
-                if st.button("✅ Tôi đã xem xong, Bắt đầu xem!", type="primary"):
-                    st.session_state.unlocked_novels.append(novel_id)
-                    st.session_state.scroll_top_trigger = True
-                    st.success("Mở khóa thành công! Đang tải chương..."); time.sleep(1); st.rerun()
+                
+                # CHỈ HIỆN NÚT SAU KHI ĐỘC GIẢ CHECK VÀO Ô NÀY
+                da_xem_link = st.checkbox("☑️ Tôi xác nhận đã nhấp vào link trên và xem xong nội dung.")
+                
+                if da_xem_link:
+                    if st.button("✅ Bắt đầu xem truyện!", type="primary"):
+                        st.session_state.unlocked_novels.append(novel_id)
+                        st.session_state.scroll_up = True
+                        st.success("Mở khóa thành công! Đang tải chương..."); time.sleep(1); st.rerun()
         else:
             if not novel["chuong"]: 
                 st.info("Truyện chưa có chương nào được đăng.")
             else:
-                # ÉP CHẠY LÊN ĐẦU TRANG BẰNG JAVASCRIPT SAU KHI ĐỔI CHƯƠNG
-                if st.session_state.scroll_top_trigger:
-                    components.html(
-                        """
-                        <script>
-                            var main = window.parent.document.querySelector('.main');
-                            if (main) main.scrollTop = 0;
-                            var appView = window.parent.document.querySelector('[data-testid="stAppViewContainer"]');
-                            if (appView) appView.scrollTop = 0;
-                        </script>
-                        """,
-                        height=0
-                    )
-                    st.session_state.scroll_top_trigger = False
-
                 st.markdown(f"<h3 style='text-align: center; color: #888;'>{novel['ten']}</h3>", unsafe_allow_html=True)
                 
                 danh_sach_ten_chuong = [c["title"] for c in novel["chuong"]]
                 
                 def on_chapter_change():
                     st.session_state.current_chapter_idx = danh_sach_ten_chuong.index(st.session_state.chuong_chon_dropdown)
-                    st.session_state.scroll_top_trigger = True
+                    st.session_state.scroll_up = True
                 
                 chuong_chon = st.selectbox(
                     "📚 Chọn chương:", 
@@ -287,13 +297,13 @@ elif st.session_state.page == 'read':
                 if st.session_state.current_chapter_idx > 0:
                     if c_prev.button("⬅️ Chương Trước", use_container_width=True):
                         st.session_state.current_chapter_idx -= 1
-                        st.session_state.scroll_top_trigger = True
+                        st.session_state.scroll_up = True # Đánh dấu cờ cuộn lên trên
                         st.rerun() 
                         
                 if st.session_state.current_chapter_idx < len(novel["chuong"]) - 1:
                     if c_next.button("Chương Tiếp Theo ➡️", use_container_width=True):
                         st.session_state.current_chapter_idx += 1
-                        st.session_state.scroll_top_trigger = True
+                        st.session_state.scroll_up = True # Đánh dấu cờ cuộn lên trên
                         st.rerun() 
 
                 st.divider()
