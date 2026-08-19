@@ -106,6 +106,7 @@ if "editing_chap_idx" not in st.session_state: st.session_state.editing_chap_idx
 if "unlocked_novels" not in st.session_state: st.session_state.unlocked_novels = []
 if "current_chapter_idx" not in st.session_state: st.session_state.current_chapter_idx = 0
 if "scroll_up" not in st.session_state: st.session_state.scroll_up = False
+if "clicked_ads" not in st.session_state: st.session_state.clicked_ads = False
 
 if "novels" not in st.session_state:
     st.session_state.novels = load_db()
@@ -135,7 +136,7 @@ def click_novel(novel_id):
     st.session_state.current_novel_id = novel_id
     st.session_state.novels[novel_id]["luot_xem"] += 1 
     st.session_state.current_chapter_idx = 0
-    st.session_state.scroll_up = True # Cuộn lên đầu khi chọn truyện mới
+    st.session_state.scroll_up = True 
     update_db() 
     st.session_state.page = 'read'
     st.rerun()
@@ -208,23 +209,6 @@ if st.session_state.page == 'home':
 # 6. GIAO DIỆN ĐỌC TRUYỆN CHI TIẾT
 # ==========================================
 elif st.session_state.page == 'read':
-    # ---- MÃ JAVASCRIPT ĐẨY TRANG LÊN TRÊN CÙNG ----
-    if st.session_state.scroll_up:
-        components.html(
-            """
-            <script>
-                // Đẩy iframe và khung chứa Streamlit lên đầu
-                window.parent.scrollTo({top: 0, behavior: 'auto'});
-                var main = window.parent.document.querySelector('.main');
-                if (main) main.scrollTo({top: 0, behavior: 'auto'});
-                var appView = window.parent.document.querySelector('[data-testid="stAppViewContainer"]');
-                if (appView) appView.scrollTo({top: 0, behavior: 'auto'});
-            </script>
-            """,
-            height=0
-        )
-        st.session_state.scroll_up = False
-    # -----------------------------------------------
 
     novel_id = st.session_state.current_novel_id
     if novel_id not in st.session_state.novels:
@@ -245,28 +229,35 @@ elif st.session_state.page == 'read':
                 st.markdown(f"**Văn án:**\n\n{novel['van_an']}")
                 
             st.divider()
-            st.warning("🔒 Truyện đang bị khóa.")
+            st.warning("🔒 Nội dung truyện đang bị khóa.")
+            
             with st.container(border=True):
-                st.markdown("### Mở khóa nội dung")
-                st.write("Vui lòng nhấn vào link bên dưới để xem quảng cáo Shopee. Sau đó đánh dấu vào ô xác nhận để hiện nút bắt đầu xem.")
-                
-                # HIỂN THỊ LINK
-                st.markdown("👉 [🛒 BẤM VÀO ĐÂY ĐỂ MỞ LINK SHOPEE (Mở tab mới)](https://s.shopee.vn/6VNC17lmsy)")
-                
-                st.write("---")
-                
-                # CHỈ HIỆN NÚT SAU KHI ĐỘC GIẢ CHECK VÀO Ô NÀY
-                da_xem_link = st.checkbox("☑️ Tôi xác nhận đã nhấp vào link trên và xem xong nội dung.")
-                
-                if da_xem_link:
+                # LUỒNG 2 BƯỚC: GIẤU NÚT "BẮT ĐẦU XEM" CHO TỚI KHI BẤM XEM LINK
+                if not st.session_state.clicked_ads:
+                    st.markdown("### Yêu cầu mở khóa")
+                    st.write("Vui lòng ấn nút lấy link bên dưới. Trang sẽ cung cấp link Shopee để bạn xem.")
+                    if st.button("👉 Lấy Link Quảng Cáo", type="primary"):
+                        st.session_state.clicked_ads = True
+                        st.rerun()
+                else:
+                    st.markdown("### Đã tạo link quảng cáo")
+                    st.markdown("👉 [🛒 BẤM VÀO ĐÂY ĐỂ XEM SHOPEE (Mở tab mới)](https://s.shopee.vn/6VNC17lmsy)")
+                    st.caption("Sau khi xem xong link phía trên, hãy nhấn nút màu đỏ bên dưới để vào đọc truyện.")
+                    st.write("---")
+                    
                     if st.button("✅ Bắt đầu xem truyện!", type="primary"):
                         st.session_state.unlocked_novels.append(novel_id)
+                        st.session_state.clicked_ads = False # Reset lại cho lần sau
                         st.session_state.scroll_up = True
                         st.success("Mở khóa thành công! Đang tải chương..."); time.sleep(1); st.rerun()
+
         else:
             if not novel["chuong"]: 
                 st.info("Truyện chưa có chương nào được đăng.")
             else:
+                # ĐÁNH DẤU MỎ NEO Ở ĐẦU TRANG ĐỂ KÉO LÊN
+                st.markdown("<div id='top-of-chapter'></div>", unsafe_allow_html=True)
+
                 st.markdown(f"<h3 style='text-align: center; color: #888;'>{novel['ten']}</h3>", unsafe_allow_html=True)
                 
                 danh_sach_ten_chuong = [c["title"] for c in novel["chuong"]]
@@ -291,19 +282,19 @@ elif st.session_state.page == 'read':
                 st.write(chuong_data['content'])
                 st.divider()
                 
-                # --- NÚT ĐIỀU HƯỚNG CHƯƠNG KÉP TỚI LUI ---
+                # --- NÚT ĐIỀU HƯỚNG CHƯƠNG ---
                 c_prev, c_space, c_next = st.columns([2, 4, 2])
                 
                 if st.session_state.current_chapter_idx > 0:
                     if c_prev.button("⬅️ Chương Trước", use_container_width=True):
                         st.session_state.current_chapter_idx -= 1
-                        st.session_state.scroll_up = True # Đánh dấu cờ cuộn lên trên
+                        st.session_state.scroll_up = True 
                         st.rerun() 
                         
                 if st.session_state.current_chapter_idx < len(novel["chuong"]) - 1:
                     if c_next.button("Chương Tiếp Theo ➡️", use_container_width=True):
                         st.session_state.current_chapter_idx += 1
-                        st.session_state.scroll_up = True # Đánh dấu cờ cuộn lên trên
+                        st.session_state.scroll_up = True 
                         st.rerun() 
 
                 st.divider()
@@ -315,6 +306,28 @@ elif st.session_state.page == 'read':
                 if c_sao.button("⭐ Đánh giá 5 Sao (+5)", use_container_width=True):
                     st.session_state.novels[novel_id]["sao"] += 5; update_db()
                     st.success("Cộng 5 Điểm Sao!"); time.sleep(1); st.rerun()
+
+                # ---- MÃ JAVASCRIPT HẸN GIỜ ĐẨY TRANG LÊN TRÊN CÙNG ----
+                # Phải để cuối cùng để đợi toàn bộ text render ra xong
+                if st.session_state.scroll_up:
+                    components.html(
+                        """
+                        <script>
+                            // Set khoảng trễ 300ms để đợi Streamlit nạp toàn bộ lượng text khổng lồ
+                            setTimeout(function() {
+                                var main = window.parent.document.querySelector('.main');
+                                if (main) { main.scrollTo({top: 0, behavior: 'instant'}); }
+                                
+                                var appView = window.parent.document.querySelector('[data-testid="stAppViewContainer"]');
+                                if (appView) { appView.scrollTo({top: 0, behavior: 'instant'}); }
+                                
+                                window.parent.scrollTo(0,0);
+                            }, 300);
+                        </script>
+                        """,
+                        height=0
+                    )
+                    st.session_state.scroll_up = False
 
 # ==========================================
 # 7. QUẢN TRỊ VIÊN (ADMIN)
