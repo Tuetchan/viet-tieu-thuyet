@@ -76,8 +76,8 @@ def load_db():
             "the_loai": ["Xuyên Không", "Hệ Thống", "Đam Mỹ"], "tinh_trang": "Đang cập nhật", 
             "luot_xem": 0, "de_xuat": 0, "sao": 0, "hien_thi_trang_chu": True,
             "chuong": [
-                {"title": "Chương 1: Bắt đầu", "content": "Nội dung chi tiết chương 1...", "views": 0},
-                {"title": "Chương 2: Thử thách mới", "content": "Nội dung chi tiết chương 2...", "views": 0}
+                {"title": "Chương 1: Bắt đầu", "content": "Nội dung chi tiết chương 1...\n\n(Dòng 2)\n\n(Dòng 3)\n\nCuối chương 1.", "views": 0},
+                {"title": "Chương 2: Thử thách mới", "content": "Nội dung chi tiết chương 2...\n\n(Dòng 2)\n\n(Dòng 3)\n\nCuối chương 2.", "views": 0}
             ]
         },
         "truyen_2": {
@@ -212,50 +212,55 @@ elif st.session_state.page == 'read':
         novel = st.session_state.novels[novel_id]
         st.button("⬅️ Quay lại Trang Chủ", on_click=lambda: st.session_state.update(page='home'))
         
-        col_img, col_info = st.columns([1, 4])
-        with col_img: st.markdown(f'<img src="{novel["bia"]}" style="width:100%; border-radius:6px; box-shadow:0 2px 5px rgba(0,0,0,0.2);">', unsafe_allow_html=True)
-        with col_info:
-            st.title(novel["ten"])
-            st.markdown(f"**Tình trạng:** {novel['tinh_trang']} | **Lượt xem:** {novel['luot_xem']}")
-            st.markdown(f"**Thể loại:** {', '.join(novel['the_loai'])}")
-            st.write("---")
-            st.markdown(f"**Văn án:**\n\n{novel['van_an']}")
-            
-        st.divider()
-
-        if not novel["chuong"]: 
-            st.info("Truyện chưa có chương nào được đăng.")
+        # KIỂM TRA TRẠNG THÁI MỞ KHÓA
+        if novel_id not in st.session_state.unlocked_novels:
+            # === NẾU CHƯA MỞ KHÓA: HIỆN VĂN ÁN VÀ YÊU CẦU XEM LINK ===
+            col_img, col_info = st.columns([1, 4])
+            with col_img: st.markdown(f'<img src="{novel["bia"]}" style="width:100%; border-radius:6px; box-shadow:0 2px 5px rgba(0,0,0,0.2);">', unsafe_allow_html=True)
+            with col_info:
+                st.title(novel["ten"])
+                st.markdown(f"**Tình trạng:** {novel['tinh_trang']} | **Lượt xem:** {novel['luot_xem']}")
+                st.markdown(f"**Thể loại:** {', '.join(novel['the_loai'])}")
+                st.write("---")
+                st.markdown(f"**Văn án:**\n\n{novel['van_an']}")
+                
+            st.divider()
+            st.warning("🔒 Truyện đang bị khóa.")
+            with st.container(border=True):
+                st.markdown("### Mở khóa nội dung")
+                st.write("Vui lòng nhấn vào link bên dưới để xem, sau đó quay lại trang này nhấn nút bắt đầu.")
+                st.markdown("[🛒 Xem Quảng Cáo Shopee (Mở tab mới)](https://s.shopee.vn/6VNC17lmsy)")
+                
+                st.write("---")
+                if st.button("✅ Tôi đã xem xong, Bắt đầu xem!", type="primary"):
+                    st.session_state.unlocked_novels.append(novel_id)
+                    st.success("Mở khóa thành công! Đang tải chương..."); time.sleep(1); st.rerun()
         else:
-            # KIỂM TRA MỞ KHÓA TRUYỆN (Chỉ mở khóa 1 lần)
-            if novel_id not in st.session_state.unlocked_novels:
-                st.warning("🔒 Truyện đang bị khóa.")
-                with st.container(border=True):
-                    st.markdown("### Mở khóa nội dung")
-                    st.write("Vui lòng nhấn vào link bên dưới để xem, sau đó quay lại trang này nhấn nút bắt đầu.")
-                    st.markdown("[🛒 Xem Quảng Cáo Shopee (Mở tab mới)](https://s.shopee.vn/6VNC17lmsy)")
-                    
-                    st.write("---")
-                    if st.button("✅ Tôi đã xem xong, Bắt đầu xem!", type="primary"):
-                        st.session_state.unlocked_novels.append(novel_id)
-                        st.success("Mở khóa thành công! Đang tải chương..."); time.sleep(1); st.rerun()
+            # === NẾU ĐÃ MỞ KHÓA: ẨN VĂN ÁN, CHỈ HIỆN KHUNG ĐỌC CHƯƠNG ===
+            if not novel["chuong"]: 
+                st.info("Truyện chưa có chương nào được đăng.")
             else:
-                # HIỂN THỊ NỘI DUNG SAU KHI MỞ KHÓA
+                # Hiện một tiêu đề nhỏ để biết đang đọc truyện nào
+                st.markdown(f"<h3 style='text-align: center; color: #888;'>{novel['ten']}</h3>", unsafe_allow_html=True)
+                
                 danh_sach_ten_chuong = [c["title"] for c in novel["chuong"]]
                 
                 def on_chapter_change():
                     st.session_state.current_chapter_idx = danh_sach_ten_chuong.index(st.session_state.chuong_chon_dropdown)
                 
                 chuong_chon = st.selectbox(
-                    "📚 Chọn chương để đọc:", 
+                    "📚 Chọn chương:", 
                     danh_sach_ten_chuong, 
                     index=st.session_state.current_chapter_idx,
                     key="chuong_chon_dropdown",
                     on_change=on_chapter_change
                 )
                 
+                st.divider()
                 chuong_data = novel["chuong"][st.session_state.current_chapter_idx]
                 
-                st.markdown(f"### {chuong_data['title']}")
+                # HIỂN THỊ NỘI DUNG CHƯƠNG
+                st.markdown(f"## {chuong_data['title']}")
                 st.write(chuong_data['content'])
                 st.divider()
                 
@@ -265,12 +270,12 @@ elif st.session_state.page == 'read':
                 if st.session_state.current_chapter_idx > 0:
                     if c_prev.button("⬅️ Chương Trước", use_container_width=True):
                         st.session_state.current_chapter_idx -= 1
-                        st.rerun()
+                        st.rerun() # Rerun sẽ tự động đẩy trang cuộn lên trên cùng
                         
                 if st.session_state.current_chapter_idx < len(novel["chuong"]) - 1:
                     if c_next.button("Chương Tiếp Theo ➡️", use_container_width=True):
                         st.session_state.current_chapter_idx += 1
-                        st.rerun()
+                        st.rerun() # Rerun sẽ tự động đẩy trang cuộn lên trên cùng
 
                 st.divider()
                 # --- NÚT ĐÁNH GIÁ TRUYỆN ---
